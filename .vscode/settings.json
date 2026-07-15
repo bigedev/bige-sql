@@ -1,0 +1,5 @@
+{
+  "chat.utilityModel": "deepseek/deepseek-v4-flash",
+  "chat.utilitySmallModel": "deepseek/deepseek-v4-flash",
+  "chat.planAgent.defaultModel": "DeepSeek V4 Flash (deepseek)" // 或者也指向同一个
+}

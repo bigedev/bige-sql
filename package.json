@@ -1,0 +1,207 @@
+{
+  "name": "bige-sql",
+  "displayName": "%extension.name%",
+  "version": "0.1.0",
+  "description": "%extension.description%",
+  "main": "./out/src/extension.js",
+  "l10n": "./l10n",
+  "license": "MIT",
+  "publisher": "bigedev",
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bigedev/bige-sql.git"
+  },
+  "bin": {
+    "bige-sql": "./out/src/server.js"
+  },
+  "categories": [
+    "Data Science",
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "mcp",
+    "database",
+    "sql",
+    "mysql",
+    "postgresql",
+    "sqlite",
+    "dameng",
+    "dm8",
+    "ai",
+    "copilot",
+    "query",
+    "dbcode"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "bigeSql",
+          "title": "BigeSQL",
+          "icon": "media/database.svg"
+        }
+      ]
+    },
+    "views": {
+      "bigeSql": [
+        {
+          "type": "tree",
+          "id": "bigeSql.connections",
+          "name": "%view.connections%"
+        },
+        {
+          "type": "tree",
+          "id": "bigeSql.mcpServer",
+          "name": "%view.mcpServer%"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "bigeSql.addConnection",
+        "title": "%cmd.addConnection%",
+        "icon": "$(plus)",
+        "category": "BigeSQL"
+      },
+      {
+        "command": "bigeSql.refreshConnections",
+        "title": "%cmd.refreshConnections%",
+        "icon": "$(refresh)",
+        "category": "BigeSQL"
+      },
+      {
+        "command": "bigeSql.openQueryEditor",
+        "title": "%cmd.openQueryEditor%",
+        "icon": "$(new-file)",
+        "category": "BigeSQL"
+      },
+      {
+        "command": "bigeSql.editConnection",
+        "title": "%cmd.editConnection%",
+        "icon": "$(edit)",
+        "category": "BigeSQL"
+      },
+      {
+        "command": "bigeSql.deleteConnection",
+        "title": "%cmd.deleteConnection%",
+        "icon": "$(trash)",
+        "category": "BigeSQL"
+      },
+      {
+        "command": "bigeSql.testConnection",
+        "title": "%cmd.testConnection%",
+        "icon": "$(beaker)",
+        "category": "BigeSQL"
+      },
+      {
+        "command": "bigeSql.startMcpServer",
+        "title": "%cmd.startMcpServer%",
+        "icon": "$(play)",
+        "category": "BigeSQL"
+      },
+      {
+        "command": "bigeSql.stopMcpServer",
+        "title": "%cmd.stopMcpServer%",
+        "icon": "$(stop)",
+        "category": "BigeSQL"
+      },
+      {
+        "command": "bigeSql.copyMcpUrl",
+        "title": "%cmd.copyMcpUrl%",
+        "category": "BigeSQL"
+      },
+      {
+        "command": "bigeSql.configureMcpPort",
+        "title": "%cmd.configureMcpPort%",
+        "category": "BigeSQL"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "bigeSql.addConnection",
+          "when": "view == bigeSql.connections",
+          "group": "navigation"
+        },
+        {
+          "command": "bigeSql.refreshConnections",
+          "when": "view == bigeSql.connections",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "bigeSql.deleteConnection",
+          "when": "view == bigeSql.connections && viewItem == connection",
+          "group": "inline@1"
+        },
+        {
+          "command": "bigeSql.editConnection",
+          "when": "view == bigeSql.connections && viewItem == connection",
+          "group": "inline@2"
+        },
+        {
+          "command": "bigeSql.testConnection",
+          "when": "view == bigeSql.connections && viewItem == connection",
+          "group": "inline@3"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "BigeSQL",
+      "properties": {
+        "bigeSql.connectionsFilePath": {
+          "type": "string",
+          "default": "",
+          "description": "%config.connectionsFilePath%"
+        },
+        "bigeSql.mcpServer.autoStart": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.mcpAutoStart%"
+        },
+        "bigeSql.mcpServer.port": {
+          "type": "number",
+          "default": 5237,
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "%config.mcpPort%"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.11.0",
+    "better-sqlite3": "^12.11.1",
+    "dmdb": "^1.0.49630",
+    "mysql2": "^3.14.0",
+    "pg": "^8.22.0"
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "bash ./compile.sh -p ./tsconfig.json",
+    "watch": "bash ./compile.sh -watch -p ./tsconfig.json",
+    "package": "npm run compile && vsce package",
+    "package:no-compile": "vsce package"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^26.1.1",
+    "@types/pg": "^8.20.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript/typescript-darwin-arm64": "^7.0.2",
+    "typescript": "^7.0.2"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true
+  }
+}

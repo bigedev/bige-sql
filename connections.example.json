@@ -1,0 +1,32 @@
+{
+    "connections": {
+        "my-mysql": {
+            "type": "mysql",
+            "host": "127.0.0.1",
+            "port": 3306,
+            "user": "root",
+            "password": "your_password_here",
+            "database": "mydb"
+        },
+        "my-postgres": {
+            "type": "postgresql",
+            "host": "127.0.0.1",
+            "port": 5432,
+            "user": "postgres",
+            "password": "",
+            "database": "mydb"
+        },
+        "my-sqlite": {
+            "type": "sqlite",
+            "path": "/path/to/database.db"
+        },
+        "my-dameng": {
+            "type": "dameng",
+            "host": "127.0.0.1",
+            "port": 5236,
+            "user": "SYSDBA",
+            "password": "SYSDBA",
+            "database": ""
+        }
+    }
+}
