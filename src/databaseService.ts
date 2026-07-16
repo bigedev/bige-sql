@@ -102,12 +102,15 @@ export class DatabaseService {
       const poolAlias = `dmdb_${dmUrl}`;
       const dm = dmdb as any;
       if (!dm.pools[poolAlias]) {
-        await dm.createPool(dmUrl, {
+        const pool = await dm.createPool({
           poolAlias,
+          connectString: dmUrl,
           poolMax: 5,
           poolMin: 0,
           poolTimeout: 60,
         });
+        // createPool 返回的 pool 已自动注册到 dm.pools
+        return pool;
       }
       return dm.pools[poolAlias];
     }
