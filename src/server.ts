@@ -1,9 +1,7 @@
-#!/usr/bin/env node
-
 /**
  * BigeSQL - Database MCP Server
  * 开源免费的数据库 MCP Server
- * 支持 MySQL/MariaDB, PostgreSQL, SQLite, Dameng DM8
+ * 支持 MySQL/MariaDB, PostgreSQL, SQLite, Dameng DM8, SQL Server, Oracle
  *
  * 使用方式:
  *   node out/src/server.js              # stdio 模式（默认）
@@ -25,10 +23,19 @@ import mysql from "mysql2/promise";
 import pg from "pg";
 import Database from "better-sqlite3";
 import dmdb from "dmdb";
+import mssql from "mssql";
+import oracledb from "oracledb";
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import type { IncomingMessage, ServerResponse } from "http";
-import { isMySQL, isPostgres, isSQLite, isDameng } from "./dbTypes";
+import {
+  isMySQL,
+  isPostgres,
+  isSQLite,
+  isDameng,
+  isSqlServer,
+  isOracle,
+} from "./dbTypes";
 
 // ─── 类型定义 ──────────────────────────────────────────────────
 
@@ -50,7 +57,13 @@ interface ConnectionsConfig {
   connections: Record<string, DbConnectionConfig>;
 }
 
-type AnyPool = mysql.Pool | pg.Pool | Database.Database | any;
+type AnyPool =
+  | mysql.Pool
+  | pg.Pool
+  | Database.Database
+  | mssql.ConnectionPool
+  | oracledb.Pool
+  | any;
 
 // ─── 连接配置管理 ────────────────────────────────────────────────
 
@@ -200,8 +213,46 @@ async function createPool(
     return dm.pools[poolAlias];
   }
 
+  if (isSqlServer(config.type)) {
+    const pool = new mssql.ConnectionPool({
+      server: config.host || "127.0.0.1",
+      port: config.port || 1433,
+      user: config.user || "sa",
+      password: config.password || "",
+      database: config.database || "master",
+      options: {
+        encrypt: false,
+        trustServerCertificate: true,
+      },
+      pool: {
+        max: 5,
+        min: 0,
+        idleTimeoutMillis: 30000,
+      },
+    });
+    await pool.connect();
+    return pool;
+  }
+
+  if (isOracle(config.type)) {
+    const connectString =
+      config.host && config.port
+        ? `${config.host}:${config.port}/${config.database || "XE"}`
+        : config.database || "XE";
+    const pool = await oracledb.createPool({
+      user: config.user || "scott",
+      password: config.password || "tiger",
+      connectString,
+      poolMin: 0,
+      poolMax: 5,
+      poolIncrement: 1,
+      poolTimeout: 60,
+    });
+    return pool;
+  }
+
   throw new Error(
-    `不支援的資料庫類型: "${config.type}"。支援的類型: mysql, postgresql, sqlite, dameng`,
+    `不支援的資料庫類型: "${config.type}"。支援的類型: mysql, postgresql, sqlite, dameng, sqlserver, oracle`,
   );
 }
 
@@ -257,6 +308,38 @@ async function executeQuery(
     return result.rows || [];
   }
 
+  if (isSqlServer(config.type)) {
+    const pool2 = pool as mssql.ConnectionPool;
+    const request = pool2.request();
+    const result = await request.query(sql);
+    if (result.recordset && result.recordset.length > 0) {
+      return result.recordset;
+    }
+    if (result.rowsAffected && result.rowsAffected[0] > 0) {
+      return { affectedRows: result.rowsAffected[0] };
+    }
+    return [];
+  }
+
+  if (isOracle(config.type)) {
+    const oraclePool = pool as oracledb.Pool;
+    const conn = await oraclePool.getConnection();
+    try {
+      const result = await conn.execute(sql, [], {
+        outFormat: oracledb.OUT_FORMAT_OBJECT,
+      });
+      if (result.rows && result.rows.length > 0) {
+        return result.rows;
+      }
+      if (result.rowsAffected !== undefined && result.rowsAffected > 0) {
+        return { affectedRows: result.rowsAffected };
+      }
+      return [];
+    } finally {
+      await conn.close();
+    }
+  }
+
   throw new Error(`不支援的資料庫類型: ${config.type}`);
 }
 
@@ -270,6 +353,10 @@ async function closePool(
     await (pool as pg.Pool).end();
   } else if (isSQLite(config.type)) {
     (pool as Database.Database).close();
+  } else if (isSqlServer(config.type)) {
+    await (pool as mssql.ConnectionPool).close();
+  } else if (isOracle(config.type)) {
+    await (pool as oracledb.Pool).close();
   }
   // dmdb 连接池由驱动管理，无需手动关闭
 }
@@ -279,10 +366,24 @@ async function testPool(
   pool: AnyPool,
   config: DbConnectionConfig,
 ): Promise<void> {
-  if (isMySQL(config.type) || isPostgres(config.type)) {
+  if (
+    isMySQL(config.type) ||
+    isPostgres(config.type) ||
+    isSqlServer(config.type)
+  ) {
     await (pool as any).query("SELECT 1");
   } else if (isSQLite(config.type)) {
     (pool as Database.Database).prepare("SELECT 1").get();
+  } else if (isOracle(config.type)) {
+    const oraclePool = pool as oracledb.Pool;
+    const conn = await oraclePool.getConnection();
+    try {
+      await conn.execute("SELECT 1 FROM DUAL", [], {
+        outFormat: oracledb.OUT_FORMAT_OBJECT,
+      });
+    } finally {
+      await conn.close();
+    }
   }
   // dmdb 由连接池自动管理健康检查
 }
@@ -342,6 +443,32 @@ async function listTables(
     );
   }
 
+  if (isSqlServer(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT TABLE_NAME AS name, TABLE_TYPE AS type
+       FROM INFORMATION_SCHEMA.TABLES
+       WHERE TABLE_TYPE IN ('BASE TABLE', 'VIEW')
+       ORDER BY TABLE_NAME`,
+      config,
+    );
+  }
+
+  if (isOracle(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT TABLE_NAME AS name, 'TABLE' AS type
+       FROM ALL_TABLES
+       WHERE OWNER NOT IN ('SYS','SYSDBA')
+       UNION ALL
+       SELECT VIEW_NAME AS name, 'VIEW' AS type
+       FROM ALL_VIEWS
+       WHERE OWNER NOT IN ('SYS','SYSDBA')
+       ORDER BY name`,
+      config,
+    );
+  }
+
   throw new Error(`不支援的資料庫類型: ${config.type}`);
 }
 
@@ -372,6 +499,30 @@ async function describeTable(
   }
 
   if (isDameng(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT COLUMN_NAME AS "Field", DATA_TYPE AS "Type",
+              NULLABLE AS "Null", DATA_DEFAULT AS "Default"
+       FROM ALL_TAB_COLUMNS
+       WHERE TABLE_NAME = '${safeName}'
+       ORDER BY COLUMN_ID`,
+      config,
+    );
+  }
+
+  if (isSqlServer(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT COLUMN_NAME AS "Field", DATA_TYPE AS "Type",
+              IS_NULLABLE AS "Null", COLUMN_DEFAULT AS "Default"
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_NAME = '${safeName}'
+       ORDER BY ORDINAL_POSITION`,
+      config,
+    );
+  }
+
+  if (isOracle(config.type)) {
     return executeQuery(
       pool,
       `SELECT COLUMN_NAME AS "Field", DATA_TYPE AS "Type",
@@ -430,6 +581,33 @@ async function getTableSchema(
     );
   }
 
+  if (isSqlServer(config.type)) {
+    // SQL Server 使用 sp_help 或 INFORMATION_SCHEMA 获取列信息
+    return executeQuery(
+      pool,
+      `SELECT COLUMN_NAME AS "Field", DATA_TYPE AS "Type",
+              IS_NULLABLE AS "Null", COLUMN_DEFAULT AS "Default",
+              ORDINAL_POSITION
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_NAME = '${safeName}'
+       ORDER BY ORDINAL_POSITION`,
+      config,
+    );
+  }
+
+  if (isOracle(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT COLUMN_NAME AS "Field", DATA_TYPE AS "Type",
+              NULLABLE AS "Null", DATA_DEFAULT AS "Default",
+              COLUMN_ID
+       FROM ALL_TAB_COLUMNS
+       WHERE TABLE_NAME = '${safeName}'
+       ORDER BY COLUMN_ID`,
+      config,
+    );
+  }
+
   throw new Error(`不支援的資料庫類型: ${config.type}`);
 }
 
@@ -472,6 +650,31 @@ async function getTableIndexes(
     );
   }
 
+  if (isSqlServer(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT i.name AS index_name,
+              COL_NAME(ic.object_id, ic.column_id) AS column_name,
+              i.type_desc AS index_type
+       FROM sys.indexes i
+       JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+       WHERE i.object_id = OBJECT_ID('${safeName}')
+       ORDER BY i.name, ic.index_column_id`,
+      config,
+    );
+  }
+
+  if (isOracle(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT INDEX_NAME, COLUMN_NAME, INDEX_TYPE
+       FROM ALL_IND_COLUMNS
+       WHERE TABLE_NAME = '${safeName}'
+       ORDER BY INDEX_NAME, COLUMN_POSITION`,
+      config,
+    );
+  }
+
   throw new Error(`不支援的資料庫類型: ${config.type}`);
 }
 
@@ -500,6 +703,24 @@ async function explainQuery(
 
   if (isDameng(config.type)) {
     return executeQuery(pool, `EXPLAIN ${sql}`, config);
+  }
+
+  if (isSqlServer(config.type)) {
+    return executeQuery(
+      pool,
+      `SET SHOWPLAN_XML ON; ${sql}; SET SHOWPLAN_XML OFF;`,
+      config,
+    );
+  }
+
+  if (isOracle(config.type)) {
+    // Oracle: EXPLAIN PLAN FOR 然后查询 DBMS_XPLAN
+    await executeQuery(pool, `EXPLAIN PLAN FOR ${sql}`, config);
+    return executeQuery(
+      pool,
+      `SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY(NULL, NULL, 'BASIC'))`,
+      config,
+    );
   }
 
   throw new Error(`不支援的資料庫類型: ${config.type}`);
@@ -557,6 +778,27 @@ async function getTableInfo(
     return executeQuery(
       pool,
       `SELECT TABLE_NAME AS name, TABLESPACE_NAME AS tablespace,
+              NUM_ROWS AS rowCount, LAST_ANALYZED AS lastAnalyzed
+       FROM ALL_TABLES
+       WHERE TABLE_NAME = '${safeName}'`,
+      config,
+    );
+  }
+
+  if (isSqlServer(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT TABLE_NAME AS name, TABLE_TYPE AS type
+       FROM INFORMATION_SCHEMA.TABLES
+       WHERE TABLE_NAME = '${safeName}'`,
+      config,
+    );
+  }
+
+  if (isOracle(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT TABLE_NAME AS name, 'TABLE' AS type,
               NUM_ROWS AS rowCount, LAST_ANALYZED AS lastAnalyzed
        FROM ALL_TABLES
        WHERE TABLE_NAME = '${safeName}'`,
@@ -624,6 +866,34 @@ async function searchTables(
     );
   }
 
+  if (isSqlServer(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT TABLE_NAME AS name, TABLE_TYPE AS type
+       FROM INFORMATION_SCHEMA.TABLES
+       WHERE TABLE_NAME LIKE '%${keyword}%'
+       ORDER BY TABLE_NAME`,
+      config,
+    );
+  }
+
+  if (isOracle(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT TABLE_NAME AS name, 'TABLE' AS type
+       FROM ALL_TABLES
+       WHERE OWNER NOT IN ('SYS','SYSDBA')
+         AND TABLE_NAME LIKE '%${keyword}%'
+       UNION ALL
+       SELECT VIEW_NAME AS name, 'VIEW' AS type
+       FROM ALL_VIEWS
+       WHERE OWNER NOT IN ('SYS','SYSDBA')
+         AND VIEW_NAME LIKE '%${keyword}%'
+       ORDER BY name`,
+      config,
+    );
+  }
+
   throw new Error(`不支援的資料庫類型: ${config.type}`);
 }
 
@@ -664,6 +934,25 @@ async function listSchemas(
       pool,
       `SELECT DISTINCT OWNER AS name FROM ALL_TABLES
        WHERE OWNER NOT IN ('SYS','SYSDBA','SYSAUDITOR','CTISYS')
+       ORDER BY name`,
+      config,
+    );
+  }
+
+  if (isSqlServer(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT SCHEMA_NAME AS name FROM INFORMATION_SCHEMA.SCHEMATA
+       ORDER BY SCHEMA_NAME`,
+      config,
+    );
+  }
+
+  if (isOracle(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT DISTINCT OWNER AS name FROM ALL_TABLES
+       WHERE OWNER NOT IN ('SYS','SYSDBA')
        ORDER BY name`,
       config,
     );
@@ -726,6 +1015,34 @@ async function getForeignKeys(
     );
   }
 
+  if (isSqlServer(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT COLUMN_NAME AS columnName,
+              REFERENCED_TABLE_NAME AS refTable,
+              REFERENCED_COLUMN_NAME AS refColumn
+       FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+       JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+         ON kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+       WHERE kcu.TABLE_NAME = '${safeName}'`,
+      config,
+    );
+  }
+
+  if (isOracle(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT cc.COLUMN_NAME AS columnName,
+              c.TABLE_NAME AS refTable,
+              (SELECT COLUMN_NAME FROM ALL_CONS_COLUMNS
+               WHERE CONSTRAINT_NAME = c.R_CONSTRAINT_NAME AND ROWNUM = 1) AS refColumn
+       FROM ALL_CONSTRAINTS c
+       JOIN ALL_CONS_COLUMNS cc ON c.CONSTRAINT_NAME = cc.CONSTRAINT_NAME
+       WHERE c.CONSTRAINT_TYPE = 'R' AND c.TABLE_NAME = '${safeName}'`,
+      config,
+    );
+  }
+
   throw new Error(`不支援的資料庫類型: ${config.type}`);
 }
 
@@ -780,6 +1097,28 @@ async function listProcedures(
     );
   }
 
+  if (isSqlServer(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT ROUTINE_NAME AS name, ROUTINE_TYPE AS type
+       FROM INFORMATION_SCHEMA.ROUTINES
+       ORDER BY ROUTINE_NAME`,
+      config,
+    );
+  }
+
+  if (isOracle(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT OBJECT_NAME AS name, OBJECT_TYPE AS type
+       FROM ALL_OBJECTS
+       WHERE OBJECT_TYPE IN ('PROCEDURE','FUNCTION')
+         AND OWNER NOT IN ('SYS','SYSDBA')
+       ORDER BY OBJECT_NAME`,
+      config,
+    );
+  }
+
   throw new Error(`不支援的資料庫類型: ${config.type}`);
 }
 
@@ -816,6 +1155,24 @@ async function getProcedureSource(
     return executeQuery(
       pool,
       `SELECT TEXT FROM ALL_SOURCE WHERE NAME = '${name}' AND OWNER NOT IN ('SYS','SYSDBA') ORDER BY LINE`,
+      config,
+    );
+  }
+
+  if (isSqlServer(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT OBJECT_DEFINITION(OBJECT_ID('${name}')) AS source`,
+      config,
+    );
+  }
+
+  if (isOracle(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT TEXT FROM ALL_SOURCE
+       WHERE NAME = '${name}' AND OWNER NOT IN ('SYS','SYSDBA')
+       ORDER BY LINE`,
       config,
     );
   }
@@ -860,6 +1217,34 @@ async function getPrimaryKeys(
   }
 
   if (isDameng(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT COLUMN_NAME AS columnName, CONSTRAINT_NAME AS constraintName
+       FROM ALL_CONS_COLUMNS
+       WHERE CONSTRAINT_NAME IN (
+         SELECT CONSTRAINT_NAME FROM ALL_CONSTRAINTS
+         WHERE CONSTRAINT_TYPE = 'P' AND TABLE_NAME = '${safeName}'
+       )
+       ORDER BY POSITION`,
+      config,
+    );
+  }
+
+  if (isSqlServer(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT COLUMN_NAME AS columnName, CONSTRAINT_NAME AS constraintName
+       FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+       WHERE TABLE_NAME = '${safeName}' AND CONSTRAINT_NAME IN (
+         SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+         WHERE CONSTRAINT_TYPE = 'PRIMARY KEY' AND TABLE_NAME = '${safeName}'
+       )
+       ORDER BY ORDINAL_POSITION`,
+      config,
+    );
+  }
+
+  if (isOracle(config.type)) {
     return executeQuery(
       pool,
       `SELECT COLUMN_NAME AS columnName, CONSTRAINT_NAME AS constraintName
@@ -925,6 +1310,27 @@ async function listViews(
     );
   }
 
+  if (isSqlServer(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT TABLE_NAME AS name, VIEW_DEFINITION AS definition
+       FROM INFORMATION_SCHEMA.VIEWS
+       ORDER BY TABLE_NAME`,
+      config,
+    );
+  }
+
+  if (isOracle(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT VIEW_NAME AS name, TEXT AS definition
+       FROM ALL_VIEWS
+       WHERE OWNER NOT IN ('SYS','SYSDBA','SYSAUDITOR','CTISYS')
+       ORDER BY VIEW_NAME`,
+      config,
+    );
+  }
+
   throw new Error(`不支援的資料庫類型: ${config.type}`);
 }
 
@@ -962,6 +1368,28 @@ async function getTriggers(
       config,
     );
   }
+  if (isSqlServer(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT name AS "triggerName",
+        OBJECT_DEFINITION(object_id) AS "triggerDefinition"
+      FROM sys.triggers
+      WHERE parent_id = OBJECT_ID('${tableName.replace(/'/g, "''")}')
+      ORDER BY name`,
+      config,
+    );
+  }
+  if (isOracle(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT TRIGGER_NAME AS "triggerName",
+        TRIGGER_BODY AS "triggerDefinition"
+      FROM ALL_TRIGGERS
+      WHERE TABLE_NAME = '${tableName.replace(/'/g, "''")}'
+      ORDER BY TRIGGER_NAME`,
+      config,
+    );
+  }
   throw new Error(`不支援的資料庫類型: ${config.type}`);
 }
 
@@ -995,6 +1423,32 @@ async function getProcedureParameters(
       WHERE SPECIFIC_NAME = '${procName.replace(/'/g, "''")}'
         AND SPECIFIC_SCHEMA = '${config.database || ""}'
       ORDER BY ORDINAL_POSITION`,
+      config,
+    );
+  }
+  if (isSqlServer(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT p.name AS "paramName",
+        t.name AS "dataType",
+        p.max_length AS "maxLength"
+      FROM sys.parameters p
+      JOIN sys.types t ON p.system_type_id = t.system_type_id
+      WHERE p.object_id = OBJECT_ID('${procName.replace(/'/g, "''")}')
+      ORDER BY p.parameter_id`,
+      config,
+    );
+  }
+  if (isOracle(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT ARGUMENT_NAME AS "paramName",
+        DATA_TYPE AS "dataType",
+        IN_OUT AS "paramMode"
+      FROM ALL_ARGUMENTS
+      WHERE OBJECT_NAME = '${procName.replace(/'/g, "''")}'
+        AND OWNER NOT IN ('SYS','SYSDBA')
+      ORDER BY POSITION`,
       config,
     );
   }
@@ -1065,7 +1519,10 @@ function createMcpServer(): McpServer {
         };
       }
       const { pool, config: cfg } = await getConnection(connName);
-      const result = await executeQuery(pool, "SELECT 1 AS result", cfg);
+      const sql = isOracle(cfg.type)
+        ? "SELECT 1 AS result FROM DUAL"
+        : "SELECT 1 AS result";
+      const result = await executeQuery(pool, sql, cfg);
       return { content: [{ type: "text", text: formatResult(result) }] };
     },
   );
@@ -1074,7 +1531,8 @@ function createMcpServer(): McpServer {
   srv.registerTool(
     "list-databases",
     {
-      description: "列出服务器上的所有数据库（仅 MySQL/PostgreSQL 支持）",
+      description:
+        "列出服务器上的所有数据库（仅 MySQL/PostgreSQL/SQL Server 支持）",
       inputSchema: z.object({
         connection: z
           .string()
@@ -1094,6 +1552,12 @@ function createMcpServer(): McpServer {
         result = await executeQuery(
           pool,
           "SELECT datname AS database FROM pg_database WHERE datistemplate = false ORDER BY datname",
+          cfg,
+        );
+      } else if (isSqlServer(cfg.type)) {
+        result = await executeQuery(
+          pool,
+          "SELECT name AS database FROM sys.databases ORDER BY name",
           cfg,
         );
       } else {

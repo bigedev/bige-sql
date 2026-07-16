@@ -27,6 +27,22 @@
             "user": "SYSDBA",
             "password": "SYSDBA",
             "database": ""
+        },
+        "my-sqlserver": {
+            "type": "sqlserver",
+            "host": "127.0.0.1",
+            "port": 1433,
+            "user": "sa",
+            "password": "",
+            "database": "mydb"
+        },
+        "my-oracle": {
+            "type": "oracle",
+            "host": "127.0.0.1",
+            "port": 1521,
+            "user": "scott",
+            "password": "tiger",
+            "database": "XEPDB1"
         }
     }
 }

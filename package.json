@@ -1,7 +1,7 @@
 {
   "name": "bige-sql",
   "displayName": "%extension.name%",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "%extension.description%",
   "main": "./out/src/extension.js",
   "l10n": "./l10n",
@@ -32,10 +32,12 @@
     "sqlite",
     "dameng",
     "dm8",
+    "sqlserver",
+    "mssql",
+    "oracle",
     "ai",
     "copilot",
-    "query",
-    "dbcode"
+    "query"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -182,26 +184,33 @@
     "@modelcontextprotocol/sdk": "^1.11.0",
     "better-sqlite3": "^12.11.1",
     "dmdb": "^1.0.49630",
+    "mssql": "^12.7.0",
     "mysql2": "^3.14.0",
+    "oracledb": "^7.0.1",
     "pg": "^8.22.0"
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "bash ./compile.sh -p ./tsconfig.json",
-    "watch": "bash ./compile.sh -watch -p ./tsconfig.json",
+    "compile": "bash ./compile.sh",
+    "watch": "node ./build.mjs --watch",
     "package": "npm run compile && vsce package",
     "package:no-compile": "vsce package"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
     "@types/better-sqlite3": "^7.6.13",
+    "@types/mssql": "^12.3.0",
     "@types/node": "^26.1.1",
+    "@types/oracledb": "^7.0.1",
     "@types/pg": "^8.20.0",
     "@types/vscode": "^1.85.0",
     "@typescript/typescript-darwin-arm64": "^7.0.2",
+    "esbuild": "^0.28.1",
     "typescript": "^7.0.2"
   },
   "allowScripts": {
-    "better-sqlite3@12.11.1": true
+    "better-sqlite3@12.11.1": true,
+    "oracledb@7.0.1": true,
+    "esbuild@0.28.1": true
   }
 }

@@ -713,7 +713,9 @@ function getAddConnectionHtml(
     <select id="connType">
       <option value="${DbType.MYSQL}" ${editConfig?.type === DbType.MYSQL ? "selected" : ""}>MySQL / MariaDB</option>
       <option value="${DbType.POSTGRESQL}" ${editConfig?.type === DbType.POSTGRESQL || editConfig?.type === DbType.POSTGRES ? "selected" : ""}>PostgreSQL</option>
+      <option value="${DbType.SQLSERVER}" ${editConfig?.type === DbType.SQLSERVER || editConfig?.type === DbType.MSSQL ? "selected" : ""}>SQL Server</option>
       <option value="${DbType.SQLITE}" ${editConfig?.type === DbType.SQLITE ? "selected" : ""}>SQLite</option>
+      <option value="${DbType.ORACLE}" ${editConfig?.type === DbType.ORACLE ? "selected" : ""}>Oracle</option>
       <option value="${DbType.DAMENG}" ${editConfig?.type === DbType.DAMENG || editConfig?.type === DbType.DM8 ? "selected" : ""}>${vscode.l10n.t("Dameng DM8")}</option>
     </select>
   </div>

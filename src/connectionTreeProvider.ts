@@ -37,7 +37,14 @@
 import * as vscode from "vscode";
 import { ConnectionManager, DbConfig } from "./connectionManager";
 import { DatabaseService } from "./databaseService";
-import { DbType, isMySQL, isPostgres, isSQLite } from "./dbTypes";
+import {
+  DbType,
+  isMySQL,
+  isPostgres,
+  isSQLite,
+  isSqlServer,
+  isOracle,
+} from "./dbTypes";
 
 /** PNG 图标文件名映射 */
 const DB_ICON_FILES: Record<string, string> = {
@@ -48,6 +55,9 @@ const DB_ICON_FILES: Record<string, string> = {
   [DbType.SQLITE]: "db-sqlite.png",
   [DbType.DAMENG]: "db-dameng.png",
   [DbType.DM8]: "db-dameng.png",
+  [DbType.SQLSERVER]: "db-sqlserver.png",
+  [DbType.MSSQL]: "db-sqlserver.png",
+  [DbType.ORACLE]: "db-oracle.png",
 };
 
 /**
@@ -313,6 +323,16 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
     // PostgreSQL：listDatabases 返回所有数据库（第二级）
     if (isPostgres(config.type)) {
       return this.getDatabaseItems(connName);
+    }
+
+    // SQL Server：listDatabases 返回所有数据库（第二级）
+    if (isSqlServer(config.type)) {
+      return this.getDatabaseItems(connName);
+    }
+
+    // Oracle：listUsers 返回所有用户/所有者（第二级），同 Dameng
+    if (isOracle(config.type)) {
+      return this.getUserItems(connName);
     }
 
     // Dameng：listUsers 返回所有用户/所有者（第二级）

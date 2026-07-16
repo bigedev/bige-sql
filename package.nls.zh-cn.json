@@ -1,6 +1,6 @@
 {
     "extension.name": "BigeSQL",
-    "extension.description": "开源多数据库管理工具 & MCP Server — MySQL/MariaDB, PostgreSQL, SQLite, 达梦 DM8",
+    "extension.description": "开源多数据库管理工具 & MCP Server — MySQL/MariaDB, PostgreSQL, SQLite, 达梦 DM8, SQL Server, Oracle",
     "view.connections": "数据库连接",
     "view.mcpServer": "MCP 服务器",
     "cmd.addConnection": "添加数据库连接",

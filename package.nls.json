@@ -1,6 +1,6 @@
 {
     "extension.name": "BigeSQL",
-    "extension.description": "Open-source multi-database management tool & MCP Server — MySQL/MariaDB, PostgreSQL, SQLite, Dameng DM8",
+    "extension.description": "Open-source multi-database management tool & MCP Server — MySQL/MariaDB, PostgreSQL, SQLite, Dameng DM8, SQL Server, Oracle",
     "view.connections": "Database Connections",
     "view.mcpServer": "MCP Server",
     "cmd.addConnection": "Add Database Connection",

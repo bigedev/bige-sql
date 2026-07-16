@@ -11,6 +11,9 @@ export const DbType = {
   SQLITE: "sqlite",
   DAMENG: "dameng",
   DM8: "dm8",
+  SQLSERVER: "sqlserver",
+  MSSQL: "mssql",
+  ORACLE: "oracle",
 } as const;
 
 export type DbType = (typeof DbType)[keyof typeof DbType];
@@ -44,12 +47,29 @@ export function isDameng(type: string | null | undefined): boolean {
 }
 
 /**
+ * 判断是否为 SQL Server
+ */
+export function isSqlServer(type: string | null | undefined): boolean {
+  return type === DbType.SQLSERVER || type === DbType.MSSQL;
+}
+
+/**
+ * 判断是否为 Oracle
+ */
+export function isOracle(type: string | null | undefined): boolean {
+  return type === DbType.ORACLE;
+}
+
+/**
  * 根据数据库类型返回标识符引用符
  * - MySQL/MariaDB: 反引号 `
- * - PostgreSQL/SQLite/达梦: 双引号 "
+ * - PostgreSQL/SQLite/达梦/Oracle: 双引号 "
+ * - SQL Server: 方括号 []（也兼容双引号，但方括号是默认）
  */
 export function quoteIdentifier(type: string | null | undefined): string {
-  return isMySQL(type) ? "`" : '"';
+  if (isMySQL(type)) return "`";
+  if (isSqlServer(type)) return "]"; // 返回左括号，用 quoteName 拼接
+  return '"';
 }
 
 /**
@@ -60,26 +80,9 @@ export function quoteName(
   name: string,
 ): string {
   const q = quoteIdentifier(type);
+  // SQL Server 用方括号
+  if (isSqlServer(type)) {
+    return `[${name}]`;
+  }
   return `${q}${name}${q}`;
-}
-
-/** 数据库类型 → 显示图标映射 */
-const DB_ICONS: Record<string, string> = {
-  [DbType.SQLITE]: "📦",
-  [DbType.POSTGRESQL]: "🐘",
-  [DbType.POSTGRES]: "🐘",
-  [DbType.DAMENG]: "🔷",
-  [DbType.DM8]: "🔷",
-};
-
-/**
- * 获取数据库类型的显示图标
- * @param type 数据库类型字符串
- * @param fallback 未匹配时的默认图标，默认 "🗄️"
- */
-export function getDbIcon(
-  type: string | null | undefined,
-  fallback = "🗄️",
-): string {
-  return (type && DB_ICONS[type]) || fallback;
 }

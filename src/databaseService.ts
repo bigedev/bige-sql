@@ -1,13 +1,22 @@
 /**
  * BigeSQL - 数据库服务
- * 支持 MySQL, PostgreSQL, SQLite, Dameng DM8
+ * 支持 MySQL, PostgreSQL, SQLite, Dameng DM8, SQL Server, Oracle
  */
 import mysql from "mysql2/promise";
 import pg from "pg";
 import Database from "better-sqlite3";
 import dmdb from "dmdb";
+import mssql from "mssql";
+import oracledb from "oracledb";
 import { ConnectionManager, DbConfig } from "./connectionManager";
-import { isMySQL, isPostgres, isSQLite, isDameng } from "./dbTypes";
+import {
+  isMySQL,
+  isPostgres,
+  isSQLite,
+  isDameng,
+  isSqlServer,
+  isOracle,
+} from "./dbTypes";
 
 interface QueryResult {
   rows: any[];
@@ -103,14 +112,65 @@ export class DatabaseService {
       return dm.pools[poolAlias];
     }
 
+    if (isSqlServer(config.type)) {
+      const pool = new mssql.ConnectionPool({
+        server: config.host || "127.0.0.1",
+        port: config.port || 1433,
+        user: config.user || "sa",
+        password: config.password || "",
+        database: config.database || "master",
+        options: {
+          encrypt: false,
+          trustServerCertificate: true,
+        },
+        pool: {
+          max: 5,
+          min: 0,
+          idleTimeoutMillis: 30000,
+        },
+      });
+      await pool.connect();
+      return pool;
+    }
+
+    if (isOracle(config.type)) {
+      const connectString =
+        config.host && config.port
+          ? `${config.host}:${config.port}/${config.database || "XE"}`
+          : config.database || "XE";
+      return oracledb.createPool({
+        user: config.user || "scott",
+        password: config.password || "tiger",
+        connectString,
+        poolMin: 0,
+        poolMax: 5,
+        poolIncrement: 1,
+        poolTimeout: 60,
+      });
+    }
+
     throw new Error(`Unsupported database type: "${config.type}"`);
   }
 
   private async testPool(pool: any, config: DbConfig): Promise<void> {
-    if (isMySQL(config.type) || isPostgres(config.type)) {
+    if (
+      isMySQL(config.type) ||
+      isPostgres(config.type) ||
+      isSqlServer(config.type)
+    ) {
       await pool.query("SELECT 1");
     } else if (isSQLite(config.type)) {
       pool.prepare("SELECT 1").get();
+    } else if (isOracle(config.type)) {
+      const oraclePool = pool as oracledb.Pool;
+      const conn = await oraclePool.getConnection();
+      try {
+        await conn.execute("SELECT 1 FROM DUAL", [], {
+          outFormat: oracledb.OUT_FORMAT_OBJECT,
+        });
+      } finally {
+        await conn.close();
+      }
     }
     // dameng 无需测试
   }
@@ -129,6 +189,25 @@ export class DatabaseService {
       } else if (isSQLite(config.type)) {
         const row = pool.prepare("SELECT 1 AS result").get();
         if (!row) throw new Error("無返回結果");
+      } else if (isSqlServer(config.type)) {
+        const result = await pool.request().query("SELECT 1 AS result");
+        if (!result.recordset || result.recordset.length === 0)
+          throw new Error("無返回結果");
+      } else if (isOracle(config.type)) {
+        const conn = await pool.getConnection();
+        try {
+          const result = await conn.execute(
+            "SELECT 1 AS result FROM DUAL",
+            [],
+            {
+              outFormat: oracledb.OUT_FORMAT_OBJECT,
+            },
+          );
+          if (!result.rows || result.rows.length === 0)
+            throw new Error("無返回結果");
+        } finally {
+          await conn.close();
+        }
       }
       // dameng createPool 已实际建立连接，无需额外测试
       return true;
@@ -155,6 +234,14 @@ export class DatabaseService {
         const dbs: string[] = result.rows.map(
           (r: any) => r.database || r.datname,
         );
+        return dbs;
+      } else if (isSqlServer(config.type)) {
+        const result = await this.execQuery(
+          pool,
+          "SELECT name AS database FROM sys.databases ORDER BY name",
+          config,
+        );
+        const dbs: string[] = result.rows.map((r: any) => r.database || r.name);
         return dbs;
       } else {
         throw new Error("当前数据库类型不支援列出資料庫清單");
@@ -235,6 +322,41 @@ export class DatabaseService {
       return { rows: result.rows || [], isSelect: true };
     }
 
+    if (isSqlServer(config.type)) {
+      const request = pool.request();
+      const result = await request.query(sql);
+      if (result.recordset?.length > 0)
+        return { rows: result.recordset, isSelect: true };
+      if (result.rowsAffected?.[0] !== undefined && result.rowsAffected[0] > 0)
+        return {
+          rows: [{ affectedRows: result.rowsAffected[0] }],
+          isSelect: false,
+          affectedRows: result.rowsAffected[0],
+        };
+      return { rows: [], isSelect: true };
+    }
+
+    if (isOracle(config.type)) {
+      const oraclePool = pool as oracledb.Pool;
+      const conn = await oraclePool.getConnection();
+      try {
+        const result = await conn.execute(sql, [], {
+          outFormat: oracledb.OUT_FORMAT_OBJECT,
+        });
+        if (result.rows && result.rows.length > 0)
+          return { rows: result.rows as any[], isSelect: true };
+        if (result.rowsAffected !== undefined && result.rowsAffected > 0)
+          return {
+            rows: [{ affectedRows: result.rowsAffected }],
+            isSelect: false,
+            affectedRows: result.rowsAffected,
+          };
+        return { rows: [], isSelect: true };
+      } finally {
+        await conn.close();
+      }
+    }
+
     throw new Error(`不支援的資料庫類型: ${config.type}`);
   }
 
@@ -283,6 +405,31 @@ export class DatabaseService {
       );
     }
 
+    if (isSqlServer(config.type)) {
+      const schemaFilter = schemaName
+        ? `WHERE TABLE_SCHEMA = '${schemaName.replace(/'/g, "''")}'`
+        : "";
+      return this.execQuery(
+        pool,
+        `SELECT TABLE_NAME AS name, TABLE_TYPE AS type FROM INFORMATION_SCHEMA.TABLES ${schemaFilter} ORDER BY TABLE_NAME`,
+        config,
+      );
+    }
+
+    if (isOracle(config.type)) {
+      const ownerFilter = schemaName
+        ? `AND OWNER = '${schemaName.replace(/'/g, "''")}'`
+        : `AND OWNER NOT IN ('SYS','SYSDBA','SYSAUDITOR','CTISYS')`;
+      return this.execQuery(
+        pool,
+        `SELECT TABLE_NAME AS name, 'TABLE' AS type FROM ALL_TABLES WHERE 1=1 ${ownerFilter}
+         UNION ALL
+         SELECT VIEW_NAME AS name, 'VIEW' AS type FROM ALL_VIEWS WHERE 1=1 ${ownerFilter}
+         ORDER BY name`,
+        config,
+      );
+    }
+
     throw new Error(`不支援的資料庫類型: ${config.type}`);
   }
 
@@ -321,6 +468,22 @@ export class DatabaseService {
       );
     }
 
+    if (isSqlServer(config.type)) {
+      return this.execQuery(
+        pool,
+        `SELECT COLUMN_NAME AS "Field", DATA_TYPE AS "Type", IS_NULLABLE AS "Null", COLUMN_DEFAULT AS "Default" FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '${safeName}' ORDER BY ORDINAL_POSITION`,
+        config,
+      );
+    }
+
+    if (isOracle(config.type)) {
+      return this.execQuery(
+        pool,
+        `SELECT COLUMN_NAME AS "Field", DATA_TYPE AS "Type", NULLABLE AS "Null", DATA_DEFAULT AS "Default" FROM ALL_TAB_COLUMNS WHERE TABLE_NAME = '${safeName}' ORDER BY COLUMN_ID`,
+        config,
+      );
+    }
+
     throw new Error(`不支援的資料庫類型: ${config.type}`);
   }
 
@@ -338,6 +501,12 @@ export class DatabaseService {
         ORDER BY datname`,
         config,
       );
+    if (isSqlServer(config.type))
+      return this.execQuery(
+        pool,
+        `SELECT name FROM sys.databases ORDER BY name`,
+        config,
+      );
     throw new Error("当前数据库类型不支援列出資料庫");
   }
 
@@ -353,6 +522,22 @@ export class DatabaseService {
       );
     }
     if (isDameng(config.type)) {
+      return this.execQuery(
+        pool,
+        `SELECT DISTINCT OWNER AS name FROM ALL_TABLES
+        WHERE OWNER NOT IN ('SYS','SYSDBA','SYSAUDITOR','CTISYS')
+        ORDER BY name`,
+        config,
+      );
+    }
+    if (isSqlServer(config.type)) {
+      return this.execQuery(
+        pool,
+        `SELECT name FROM sys.schemas ORDER BY name`,
+        config,
+      );
+    }
+    if (isOracle(config.type)) {
       return this.execQuery(
         pool,
         `SELECT DISTINCT OWNER AS name FROM ALL_TABLES
@@ -418,6 +603,23 @@ export class DatabaseService {
         config,
       );
     }
+    if (isSqlServer(config.type)) {
+      return this.execQuery(
+        pool,
+        `SELECT SCHEMA_NAME AS name FROM INFORMATION_SCHEMA.SCHEMATA ORDER BY SCHEMA_NAME`,
+        config,
+      );
+    }
+    if (isOracle(config.type)) {
+      const ownerFilter = userName
+        ? `AND OWNER = '${userName.replace(/'/g, "''")}'`
+        : `AND OWNER NOT IN ('SYS','SYSDBA','SYSAUDITOR','CTISYS')`;
+      return this.execQuery(
+        pool,
+        `SELECT DISTINCT OWNER AS name FROM ALL_TABLES WHERE 1=1 ${ownerFilter} ORDER BY name`,
+        config,
+      );
+    }
     // SQLite 无 schema 层级
     return { rows: [], isSelect: true };
   }
@@ -466,6 +668,23 @@ export class DatabaseService {
         pool,
         `SELECT OBJECT_NAME AS name, OBJECT_TYPE AS type FROM ALL_OBJECTS
         WHERE OBJECT_TYPE IN ('PROCEDURE','FUNCTION') ${ownerFilter}
+        ORDER BY OBJECT_NAME`,
+        config,
+      );
+    }
+    if (isSqlServer(config.type)) {
+      return this.execQuery(
+        pool,
+        `SELECT ROUTINE_NAME AS name, ROUTINE_TYPE AS type FROM INFORMATION_SCHEMA.ROUTINES ORDER BY ROUTINE_NAME`,
+        config,
+      );
+    }
+    if (isOracle(config.type)) {
+      return this.execQuery(
+        pool,
+        `SELECT OBJECT_NAME AS name, OBJECT_TYPE AS type FROM ALL_OBJECTS
+        WHERE OBJECT_TYPE IN ('PROCEDURE','FUNCTION')
+          AND OWNER NOT IN ('SYS','SYSDBA')
         ORDER BY OBJECT_NAME`,
         config,
       );
@@ -541,6 +760,31 @@ export class DatabaseService {
         isSelect: true,
       };
     }
+    if (isSqlServer(config.type)) {
+      return this.execQuery(
+        pool,
+        `SELECT COLUMN_NAME AS columnName, CONSTRAINT_NAME AS constraintName
+        FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+        WHERE TABLE_NAME = '${safeName}' AND CONSTRAINT_NAME IN (
+          SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+          WHERE CONSTRAINT_TYPE = 'PRIMARY KEY' AND TABLE_NAME = '${safeName}'
+        )
+        ORDER BY ORDINAL_POSITION`,
+        config,
+      );
+    }
+    if (isOracle(config.type)) {
+      return this.execQuery(
+        pool,
+        `SELECT COLUMN_NAME AS columnName, CONSTRAINT_NAME AS constraintName
+        FROM ALL_CONS_COLUMNS
+        WHERE CONSTRAINT_NAME IN (
+          SELECT CONSTRAINT_NAME FROM ALL_CONSTRAINTS
+          WHERE CONSTRAINT_TYPE = 'P' AND TABLE_NAME = '${safeName}'
+        ) ORDER BY POSITION`,
+        config,
+      );
+    }
     return { rows: [], isSelect: true };
   }
 
@@ -610,6 +854,32 @@ export class DatabaseService {
         config,
       );
     }
+    if (isSqlServer(config.type)) {
+      return this.execQuery(
+        pool,
+        `SELECT COLUMN_NAME AS columnName,
+          REFERENCED_TABLE_NAME AS refTable,
+          REFERENCED_COLUMN_NAME AS refColumn
+        FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+        JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+          ON kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+        WHERE kcu.TABLE_NAME = '${safeName}'`,
+        config,
+      );
+    }
+    if (isOracle(config.type)) {
+      return this.execQuery(
+        pool,
+        `SELECT cc.COLUMN_NAME AS columnName,
+          c.TABLE_NAME AS refTable,
+          (SELECT COLUMN_NAME FROM ALL_CONS_COLUMNS
+           WHERE CONSTRAINT_NAME = c.R_CONSTRAINT_NAME AND ROWNUM = 1) AS refColumn
+        FROM ALL_CONSTRAINTS c
+        JOIN ALL_CONS_COLUMNS cc ON c.CONSTRAINT_NAME = cc.CONSTRAINT_NAME
+        WHERE c.CONSTRAINT_TYPE = 'R' AND c.TABLE_NAME = '${safeName}'`,
+        config,
+      );
+    }
     return { rows: [], isSelect: true };
   }
 
@@ -674,6 +944,28 @@ export class DatabaseService {
       }
       return { rows, isSelect: true };
     }
+    if (isSqlServer(config.type)) {
+      return this.execQuery(
+        pool,
+        `SELECT i.name AS "indexName",
+          COL_NAME(ic.object_id, ic.column_id) AS "columnName"
+        FROM sys.indexes i
+        JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+        WHERE i.object_id = OBJECT_ID('${safeName}')
+        ORDER BY i.name, ic.index_column_id`,
+        config,
+      );
+    }
+    if (isOracle(config.type)) {
+      return this.execQuery(
+        pool,
+        `SELECT INDEX_NAME AS "indexName", COLUMN_NAME AS "columnName"
+        FROM ALL_IND_COLUMNS
+        WHERE TABLE_NAME = '${safeName}'
+        ORDER BY INDEX_NAME, COLUMN_POSITION`,
+        config,
+      );
+    }
     return { rows: [], isSelect: true };
   }
 
@@ -714,6 +1006,28 @@ export class DatabaseService {
         FROM information_schema.TRIGGERS
         WHERE EVENT_OBJECT_TABLE = '${safeName}'
           AND EVENT_OBJECT_SCHEMA = '${config.database || ""}'
+        ORDER BY TRIGGER_NAME`,
+        config,
+      );
+    }
+    if (isSqlServer(config.type)) {
+      return this.execQuery(
+        pool,
+        `SELECT name AS "triggerName",
+          OBJECT_DEFINITION(object_id) AS "triggerDefinition"
+        FROM sys.triggers
+        WHERE parent_id = OBJECT_ID('${safeName}')
+        ORDER BY name`,
+        config,
+      );
+    }
+    if (isOracle(config.type)) {
+      return this.execQuery(
+        pool,
+        `SELECT TRIGGER_NAME AS "triggerName",
+          TRIGGER_BODY AS "triggerDefinition"
+        FROM ALL_TRIGGERS
+        WHERE TABLE_NAME = '${safeName}'
         ORDER BY TRIGGER_NAME`,
         config,
       );
@@ -764,6 +1078,32 @@ export class DatabaseService {
         config,
       );
     }
+    if (isSqlServer(config.type)) {
+      return this.execQuery(
+        pool,
+        `SELECT p.name AS "paramName",
+          t.name AS "dataType",
+          p.max_length AS "maxLength"
+        FROM sys.parameters p
+        JOIN sys.types t ON p.system_type_id = t.system_type_id
+        WHERE p.object_id = OBJECT_ID('${safeName}')
+        ORDER BY p.parameter_id`,
+        config,
+      );
+    }
+    if (isOracle(config.type)) {
+      return this.execQuery(
+        pool,
+        `SELECT ARGUMENT_NAME AS "paramName",
+          DATA_TYPE AS "dataType",
+          IN_OUT AS "paramMode"
+        FROM ALL_ARGUMENTS
+        WHERE OBJECT_NAME = '${safeName}'
+          AND OWNER NOT IN ('SYS','SYSDBA')
+        ORDER BY POSITION`,
+        config,
+      );
+    }
     return { rows: [], isSelect: true };
   }
 
@@ -772,6 +1112,10 @@ export class DatabaseService {
       await pool.end();
     } else if (isSQLite(config.type)) {
       pool.close();
+    } else if (isSqlServer(config.type)) {
+      await pool.close();
+    } else if (isOracle(config.type)) {
+      await (pool as oracledb.Pool).close();
     }
     // dameng 无需手动关闭
   }

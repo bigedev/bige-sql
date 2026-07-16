@@ -1,111 +1,95 @@
-# === 项目源文件 ===
-.vscode/**
-.gitignore
-**/*.ts
-**/*.map
-src/**
+# === 构建产物（esbuild 已打包所有 JS 依赖） ===
+# 只保留两个入口文件
 out/**
 !out/src/extension.js
-!out/src/connectionManager.js
-!out/src/databaseService.js
-!out/src/connectionTreeProvider.js
-!out/src/queryEditorProvider.js
-!out/src/dbTypes.js
-!out/src/mcpServerProvider.js
 !out/src/server.js
 
-# === 开发辅助文件（不需要打包进 VSIX） ===
+# === 项目源文件（已打包到 JS 中，排除） ===
+.vscode/**
+.gitignore
+src/**
+build.mjs
+**/*.ts
+**/*.map
+
+# === 开发辅助文件 ===
 compile.sh
 .nvmrc
 test-mcp-http.mjs
 connections.json
 connections.example.json
-
-# === 根目录非必需文件 ===
 tsconfig.json
-test-mcp-http.mjs
-connections.example.json
+package-lock.json
 
-# === node_modules 通用排除 ===
-node_modules/.package-lock.json
-node_modules/**/*.md
-node_modules/**/test/**
-node_modules/**/tests/**
-node_modules/**/__tests__/**
-node_modules/**/example/**
-node_modules/**/examples/**
-node_modules/**/doc/**
-node_modules/**/docs/**
-node_modules/**/coverage/**
-node_modules/**/.github/**
-node_modules/**/CHANGELOG*
-node_modules/**/changelog*
-node_modules/**/HISTORY*
-node_modules/**/CONTRIBUTING*
-node_modules/**/SECURITY*
-node_modules/**/tsconfig.json
-node_modules/**/tslint.json
-node_modules/**/eslintrc*
-node_modules/**/.eslintrc*
-node_modules/**/.prettierrc*
-node_modules/**/.editorconfig
-node_modules/**/Makefile
-node_modules/**/CMakeLists.txt
+# === 默认排除所有 node_modules ===
+node_modules/**
 
-# === Dev-only 类型定义 ===
-node_modules/@types/**
-
-# === Dev-only 包（编译/打包工具） ===
-node_modules/@electron/**
-node_modules/@typescript/**
-node_modules/typescript/**
-node_modules/node-gyp/**
-node_modules/tar/**
-node_modules/abbrev/**
-node_modules/nopt/**
-node_modules/which/**
-node_modules/graceful-fs/**
-node_modules/semver/**
-node_modules/make-fetch-happen/**
-node_modules/cacache/**
-node_modules/@npmcli/**
-node_modules/socks*
-node_modules/socks-proxy-agent/**
-node_modules/agent-base/**
-node_modules/http-proxy-agent/**
-node_modules/https-proxy-agent/**
-node_modules/npm-pick-manifest/**
-node_modules/npm-package-arg/**
-node_modules/hosted-git-info/**
-node_modules/ini/**
-node_modules/env-paths/**
-node_modules/isexe/**
-node_modules/rimraf/**
-node_modules/glob/**
-node_modules/minimatch/**
-node_modules/brace-expansion/**
-node_modules/balanced-match/**
-node_modules/fs-minipass/**
-node_modules/chownr/**
-node_modules/minipass/**
-node_modules/minizlib/**
-node_modules/mkdirp/**
-node_modules/yallist/**
-
-# === better-sqlite3: 仅保留 lib/ 和编译好的 .node 二进制 ===
-node_modules/better-sqlite3/build/**
+# === 然后选择性包含 esbuild external 标记的原生驱动 ===
+# better-sqlite3
+!node_modules/better-sqlite3/package.json
+!node_modules/better-sqlite3/lib/**
 !node_modules/better-sqlite3/build/Release/better_sqlite3.node
-!node_modules/better-sqlite3/build/Release/test_extension.node
-node_modules/better-sqlite3/deps/**
-node_modules/better-sqlite3/bin/**
-node_modules/better-sqlite3/build-tmp/**
-node_modules/better-sqlite3/src/**
 
-# === 双格式包：仅保留 CJS（扩展运行在 Node.js CJS 环境） ===
-node_modules/**/dist/esm/**
-node_modules/**/dist/es/**
-node_modules/**/dist/module/**
+# dmdb
+!node_modules/dmdb/package.json
+!node_modules/dmdb/index.js
+!node_modules/dmdb/src/**
+!node_modules/dmdb/LICENSE
 
-# === dmdb: 排除文档和示例 ===
-node_modules/dmdb/doc/**
-node_modules/dmdb/sample/**
+# oracledb — Thin 模式仅需 JS
+!node_modules/oracledb/package.json
+!node_modules/oracledb/index.js
+!node_modules/oracledb/lib/**
+!node_modules/oracledb/LICENSE.txt
+!node_modules/oracledb/THIRD_PARTY_LICENSES.txt
+
+# mssql — 纯 JS 驱动 + tedious 依赖
+!node_modules/mssql/package.json
+!node_modules/mssql/lib/**
+!node_modules/tedious/package.json
+!node_modules/tedious/lib/**
+!node_modules/@tediousjs/**
+!node_modules/iconv-lite/**
+!node_modules/js-md4/**
+!node_modules/native-duplexpair/**
+!node_modules/bl/**
+!node_modules/readable-stream/**
+!node_modules/inherits/**
+!node_modules/util-deprecate/**
+!node_modules/safe-buffer/**
+!node_modules/string_decoder/**
+!node_modules/buffer/**
+!node_modules/sprintf-js/**
+!node_modules/word-length/**
+
+# mysql2 — 纯 JS 驱动
+!node_modules/mysql2/package.json
+!node_modules/mysql2/index.js
+!node_modules/mysql2/promise.js
+!node_modules/mysql2/lib/**
+!node_modules/aws-ssl-profiles/**
+!node_modules/denque/**
+!node_modules/generate-function/**
+!node_modules/seq-queue/**
+!node_modules/lru.min/**
+!node_modules/lru-cache/**
+!node_modules/yallist/**
+
+# pg — 纯 JS 驱动
+!node_modules/pg/package.json
+!node_modules/pg/lib/**
+!node_modules/pg/connection-string/**
+!node_modules/pg-pool/**
+!node_modules/pg-protocol/**
+!node_modules/pg-types/**
+!node_modules/pgpass/package.json
+!node_modules/pgpass/lib/**
+!node_modules/postgres-bytea/**
+!node_modules/postgres-date/**
+!node_modules/postgres-interval/**
+!node_modules/postgres-range/**
+!node_modules/obuf/**
+!node_modules/packet-reader/**
+!node_modules/xtend/**
+!node_modules/split2/**
+!node_modules/semver/**

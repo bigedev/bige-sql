@@ -171,7 +171,13 @@
       host: document.getElementById("connHost").value || "127.0.0.1",
       port:
         parseInt(document.getElementById("connPort").value) ||
-        (type === "postgresql" ? 5432 : 3306),
+        (type === "postgresql"
+          ? 5432
+          : type === "sqlserver" || type === "mssql"
+            ? 1433
+            : type === "oracle"
+              ? 1521
+              : 3306),
       user: document.getElementById("connUser").value || "root",
       password: document.getElementById("connPassword").value || "",
       database: document.getElementById("connDatabase").value || "",
@@ -221,9 +227,11 @@
   window.refreshDatabases = function () {
     try {
       var type = document.getElementById("connType").value;
-      if (type === "sqlite") {
+      if (type === "sqlite" || type === "oracle") {
         showToast(
-          L.sqliteNoDatabases || "SQLite does not support listing databases",
+          type === "sqlite"
+            ? L.sqliteNoDatabases || "SQLite does not support listing databases"
+            : "Oracle does not support listing databases",
         );
         return;
       }
