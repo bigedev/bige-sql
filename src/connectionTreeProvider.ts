@@ -163,8 +163,14 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
         return this.getConnectionChildren(conn);
 
       // 用户（DM）→ 架构列表
-      case CTX.USER:
+      case CTX.USER: {
+        // Oracle 的 user 就是 schema，跳过重复的 schema 层直接显示对象分组
+        const userCfg = this.connectionManager.getConnectionRaw(conn);
+        if (isOracle(userCfg?.type)) {
+          return this.getObjectGroupItems(conn, element.schemaName, element.dbName);
+        }
         return this.getSchemaItems(conn, element.schemaName);
+      }
 
       // 数据库（PG）→ 架构列表
       case CTX.DATABASE:
@@ -265,7 +271,7 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
           element.dbName,
         );
       case CTX.PARAMS_GROUP:
-        return this.getParamItems(conn, element.schemaName, element.procName!);
+        return this.getParamItems(conn, element.schemaName, element.procName!, element.dbName);
 
       default:
         return [];
@@ -400,7 +406,6 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
           {
             connectionName: connName,
             schemaName: name,
-            iconPath: new vscode.ThemeIcon("account"),
           },
         );
       });
@@ -449,6 +454,11 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
         return items;
       }
 
+      // Oracle 的 userName 是 schema 名不是数据库名，不能设为 dbName
+      const isOracleType = isOracle(config.type);
+      // MySQL 中 schema = database，需要将 schema 名作为 dbName 传递
+      const isMySQLType = isMySQL(config.type);
+
       const items = schemas.map((s: any) => {
         const name = s.name || s.database || "";
         const desc = s.count !== undefined ? `${s.count}` : s.size || "";
@@ -460,7 +470,7 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
           {
             connectionName: connName,
             schemaName: name,
-            dbName: userName,
+            dbName: isOracleType ? undefined : (isMySQLType ? name : userName),
             description: desc,
             tooltip: tip,
             iconPath: new vscode.ThemeIcon("repo"),
@@ -505,10 +515,11 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
                 (r.schemaname || "").toLowerCase() === schemaName.toLowerCase(),
             )
           : allRows;
-      const tableCount = schemaRows.filter(
+      const validRows = schemaRows.filter((r: any) => r.name != null);
+      const tableCount = validRows.filter(
         (r: any) => (r.type || "").toUpperCase() !== "VIEW",
       ).length;
-      const viewCount = schemaRows.filter(
+      const viewCount = validRows.filter(
         (r: any) => (r.type || "").toUpperCase() === "VIEW",
       ).length;
 
@@ -554,7 +565,8 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
         schemaName,
         dbName,
       );
-      const procCount = (procs.rows || []).length;
+      const procRows = (procs.rows || []).filter((p: any) => p.name != null);
+      const procCount = procRows.length;
       if (procCount > 0) {
         groups.push(
           new ConnectionTreeItem(
@@ -596,7 +608,9 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
           schemaName,
           dbName,
         );
-        const items = (result.rows || []).map((p: any) => {
+        const items = (result.rows || [])
+          .filter((p: any) => p.name != null)
+          .map((p: any) => {
           const n = p.name || "";
           return new ConnectionTreeItem(
             `${n}`,
@@ -632,9 +646,9 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
                 (r.schemaname || "").toLowerCase() === schemaName.toLowerCase(),
             )
           : allRows;
-      const filtered = schemaRows.filter(
-        (r: any) => ((r.type || "").toUpperCase() === "VIEW") === isView,
-      );
+      const filtered = schemaRows
+        .filter((r: any) => r.name != null) // 过滤空名称
+        .filter((r: any) => ((r.type || "").toUpperCase() === "VIEW") === isView);
       const items = filtered.map((t: any) => {
         return new ConnectionTreeItem(
           `${t.name}`,
@@ -950,6 +964,7 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
           connectionName: connName,
           schemaName,
           procName,
+          dbName,
           description: `${paramCount}`,
           iconPath: new vscode.ThemeIcon("symbol-parameter"),
         },
@@ -1307,6 +1322,7 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
         schemaName,
         dbName,
       );
+
       const rows = result.rows || [];
 
       if (rows.length === 0) {
@@ -1347,17 +1363,41 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
             );
           });
         }
-        // MySQL 返回结构化的参数信息
-        const paramName = row.paramName || row.PARAMETER_NAME || "";
-        const paramMode = row.paramMode || row.PARAMETER_MODE || "";
-        const dataType = row.dataType || row.DATA_TYPE || "";
+        // 统一小写键名读取（兼容 Oracle 列名归一化后的全部小写）
+        const getVal = (keys: string[]) => {
+          for (const k of keys) {
+            if (row[k] != null && row[k] !== "") return row[k];
+          }
+          return "";
+        };
+        let paramName = getVal(["name", "paramName", "paramname", "PARAMETER_NAME", "parametername", "ARGUMENT_NAME"]);
+        // SQL Server 参数名带 @ 前缀，去掉
+        if (paramName.startsWith("@")) paramName = paramName.slice(1);
+        const paramMode = getVal(["paramMode", "parammode", "PARAMETER_MODE", "parametermode", "IN_OUT"]);
+        // is_output 列（0/1）
+        const isOut = getVal(["is_output", "isOutput", "isoutput"]);
+        const mode = paramMode || (isOut === "1" || isOut === 1 ? "OUT" : "IN");
+        const dataType = getVal(["type", "dataType", "datatype", "DATA_TYPE", "TYPE_NAME"]);
+        // max_length 字节，对 nvarchar/nchar 需除以 2
+        const rawLen = getVal(["max_length", "maxLength", "maxlength", "typeLength", "typelength"]);
+        // 只对变长字符串类型显示长度，定长类型（int、bigint、datetime 等）不显示
+        const isVarLen = ["varchar", "nvarchar", "char", "nchar", "varbinary", "binary"].some(t => dataType.toLowerCase().startsWith(t));
+        let fullType = dataType;
+        if (isVarLen && rawLen && rawLen !== "0" && rawLen !== 0) {
+          const len = Number(rawLen);
+          if (len === -1) fullType += "(max)";
+          else if (len > 0) {
+            const isDoubleByte = dataType.toLowerCase().startsWith("nvarchar") || dataType.toLowerCase().startsWith("nchar");
+            fullType += `(${isDoubleByte ? len / 2 : len})`;
+          }
+        }
         return [
           new ConnectionTreeItem(
             `${paramName}`,
             vscode.TreeItemCollapsibleState.None,
             CTX.PARAM,
             {
-              description: `${paramMode} ${dataType}`.trim(),
+              description: `${mode} ${fullType}`.trim(),
               iconPath: new vscode.ThemeIcon("symbol-parameter"),
             },
           ),

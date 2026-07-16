@@ -204,7 +204,6 @@
     "@types/oracledb": "^7.0.1",
     "@types/pg": "^8.20.0",
     "@types/vscode": "^1.85.0",
-    "@typescript/typescript-darwin-arm64": "^7.0.2",
     "esbuild": "^0.28.1",
     "typescript": "^7.0.2"
   },

@@ -16,6 +16,11 @@ export interface DbConfig {
   charset?: string;
   timezone?: string;
   readonly?: boolean;
+  connectionString?: string;
+  /** Oracle 权限: 2=SYSDBA, 4=SYSOPER, 等（传入 oracledb.SYSDBA 等常量值） */
+  oraclePrivilege?: number;
+  /** Oracle 连接字符串中使用 SID 格式（host:port:sid）而非服务名（host:port/service） */
+  oracleUseSid?: boolean;
 }
 
 export class ConnectionManager {

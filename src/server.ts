@@ -51,6 +51,10 @@ interface DbConnectionConfig {
   timezone?: string;
   readonly?: boolean;
   connectionString?: string;
+  /** Oracle 权限: 2=SYSDBA, 4=SYSOPER, 等 */
+  oraclePrivilege?: number;
+  /** Oracle 使用 SID 格式（host:port:sid）而非服务名（host:port/service） */
+  oracleUseSid?: boolean;
 }
 
 interface ConnectionsConfig {
@@ -213,7 +217,7 @@ async function createPool(
       // createPool 返回的 pool 已自动注册到 dm.pools
       return pool;
     }
-    return dm.pools[poolAlias];
+    return dm.pools.get(poolAlias);
   }
 
   if (isSqlServer(config.type)) {
@@ -239,10 +243,16 @@ async function createPool(
 
   if (isOracle(config.type)) {
     const connectString =
-      config.host && config.port
-        ? `${config.host}:${config.port}/${config.database || "XE"}`
-        : config.database || "XE";
-    const pool = await oracledb.createPool({
+      config.connectionString ||
+      (config.host && config.port
+        ? config.oracleUseSid
+          ? `${config.host}:${config.port}:${config.database || "XE"}`
+          : `${config.host}:${config.port}/${config.database || "XE"}`
+        : config.database || "XE");
+    const privilege =
+      config.oraclePrivilege ??
+      (config.user?.toUpperCase() === "SYS" ? oracledb.SYSDBA : undefined);
+    const poolConfig: any = {
       user: config.user || "scott",
       password: config.password || "tiger",
       connectString,
@@ -250,7 +260,9 @@ async function createPool(
       poolMax: 5,
       poolIncrement: 1,
       poolTimeout: 60,
-    });
+    };
+    if (privilege !== undefined) poolConfig.privilege = privilege;
+    const pool = await oracledb.createPool(poolConfig);
     return pool;
   }
 
@@ -315,10 +327,11 @@ async function executeQuery(
     const pool2 = pool as mssql.ConnectionPool;
     const request = pool2.request();
     const result = await request.query(sql);
-    if (result.recordset && result.recordset.length > 0) {
-      return result.recordset;
+    // recordset 为 undefined 表示非查询语句，为空数组表示查询无结果
+    if (result.recordset !== undefined) {
+      return result.recordset || [];
     }
-    if (result.rowsAffected && result.rowsAffected[0] > 0) {
+    if (result.rowsAffected && result.rowsAffected[0] !== undefined) {
       return { affectedRows: result.rowsAffected[0] };
     }
     return [];
@@ -332,9 +345,15 @@ async function executeQuery(
         outFormat: oracledb.OUT_FORMAT_OBJECT,
       });
       if (result.rows && result.rows.length > 0) {
-        return result.rows;
+        return result.rows.map((r: any) => {
+          const normalized: any = {};
+          for (const key of Object.keys(r)) {
+            normalized[key.toLowerCase()] = r[key];
+          }
+          return normalized;
+        });
       }
-      if (result.rowsAffected !== undefined && result.rowsAffected > 0) {
+      if (result.rowsAffected !== undefined) {
         return { affectedRows: result.rowsAffected };
       }
       return [];
@@ -462,11 +481,11 @@ async function listTables(
       pool,
       `SELECT TABLE_NAME AS name, 'TABLE' AS type
        FROM ALL_TABLES
-       WHERE OWNER NOT IN ('SYS','SYSDBA')
+       WHERE OWNER NOT IN ('SYSTEM','OUTLN','DBSNMP','XDB','APPQOSSYS','WMSYS','EXFSYS','CTXSYS','ORDSYS','ORDDATA','MDSYS','OLAPSYS')
        UNION ALL
        SELECT VIEW_NAME AS name, 'VIEW' AS type
        FROM ALL_VIEWS
-       WHERE OWNER NOT IN ('SYS','SYSDBA')
+       WHERE OWNER NOT IN ('SYSTEM','OUTLN','DBSNMP','XDB','APPQOSSYS','WMSYS','EXFSYS','CTXSYS','ORDSYS','ORDDATA','MDSYS','OLAPSYS')
        ORDER BY name`,
       config,
     );
@@ -885,12 +904,12 @@ async function searchTables(
       pool,
       `SELECT TABLE_NAME AS name, 'TABLE' AS type
        FROM ALL_TABLES
-       WHERE OWNER NOT IN ('SYS','SYSDBA')
+       WHERE OWNER NOT IN ('SYSTEM','OUTLN','DBSNMP','XDB','APPQOSSYS','WMSYS','EXFSYS','CTXSYS','ORDSYS','ORDDATA','MDSYS','OLAPSYS')
          AND TABLE_NAME LIKE '%${keyword}%'
        UNION ALL
        SELECT VIEW_NAME AS name, 'VIEW' AS type
        FROM ALL_VIEWS
-       WHERE OWNER NOT IN ('SYS','SYSDBA')
+       WHERE OWNER NOT IN ('SYSTEM','OUTLN','DBSNMP','XDB','APPQOSSYS','WMSYS','EXFSYS','CTXSYS','ORDSYS','ORDDATA','MDSYS','OLAPSYS')
          AND VIEW_NAME LIKE '%${keyword}%'
        ORDER BY name`,
       config,
@@ -946,6 +965,7 @@ async function listSchemas(
     return executeQuery(
       pool,
       `SELECT SCHEMA_NAME AS name FROM INFORMATION_SCHEMA.SCHEMATA
+       WHERE SCHEMA_NAME NOT IN ('sys','INFORMATION_SCHEMA','guest','db_accessadmin','db_backupoperator','db_datareader','db_datawriter','db_ddladmin','db_denydatareader','db_denydatawriter','db_owner','db_securityadmin')
        ORDER BY SCHEMA_NAME`,
       config,
     );
@@ -955,7 +975,7 @@ async function listSchemas(
     return executeQuery(
       pool,
       `SELECT DISTINCT OWNER AS name FROM ALL_TABLES
-       WHERE OWNER NOT IN ('SYS','SYSDBA')
+       WHERE OWNER NOT IN ('SYSTEM','OUTLN','DBSNMP','XDB','APPQOSSYS','WMSYS','EXFSYS','CTXSYS','ORDSYS','ORDDATA','MDSYS','OLAPSYS')
        ORDER BY name`,
       config,
     );
@@ -1038,9 +1058,11 @@ async function getForeignKeys(
       `SELECT cc.COLUMN_NAME AS columnName,
               c.TABLE_NAME AS refTable,
               (SELECT COLUMN_NAME FROM ALL_CONS_COLUMNS
-               WHERE CONSTRAINT_NAME = c.R_CONSTRAINT_NAME AND ROWNUM = 1) AS refColumn
+               WHERE CONSTRAINT_NAME = c.R_CONSTRAINT_NAME
+                 AND OWNER = c.OWNER
+                 AND ROWNUM = 1) AS refColumn
        FROM ALL_CONSTRAINTS c
-       JOIN ALL_CONS_COLUMNS cc ON c.CONSTRAINT_NAME = cc.CONSTRAINT_NAME
+       JOIN ALL_CONS_COLUMNS cc ON c.CONSTRAINT_NAME = cc.CONSTRAINT_NAME AND c.OWNER = cc.OWNER
        WHERE c.CONSTRAINT_TYPE = 'R' AND c.TABLE_NAME = '${safeName}'`,
       config,
     );
@@ -1116,7 +1138,7 @@ async function listProcedures(
       `SELECT OBJECT_NAME AS name, OBJECT_TYPE AS type
        FROM ALL_OBJECTS
        WHERE OBJECT_TYPE IN ('PROCEDURE','FUNCTION')
-         AND OWNER NOT IN ('SYS','SYSDBA')
+         AND OWNER NOT IN ('SYSTEM','OUTLN','DBSNMP','XDB','APPQOSSYS','WMSYS','EXFSYS','CTXSYS','ORDSYS','ORDDATA','MDSYS','OLAPSYS')
        ORDER BY OBJECT_NAME`,
       config,
     );
@@ -1174,7 +1196,7 @@ async function getProcedureSource(
     return executeQuery(
       pool,
       `SELECT TEXT FROM ALL_SOURCE
-       WHERE NAME = '${name}' AND OWNER NOT IN ('SYS','SYSDBA')
+       WHERE NAME = '${name}' AND OWNER NOT IN ('SYSTEM','OUTLN','DBSNMP','XDB','APPQOSSYS','WMSYS','EXFSYS','CTXSYS','ORDSYS','ORDDATA','MDSYS','OLAPSYS')
        ORDER BY LINE`,
       config,
     );
@@ -1328,7 +1350,7 @@ async function listViews(
       pool,
       `SELECT VIEW_NAME AS name, TEXT AS definition
        FROM ALL_VIEWS
-       WHERE OWNER NOT IN ('SYS','SYSDBA','SYSAUDITOR','CTISYS')
+       WHERE OWNER NOT IN ('SYSTEM','OUTLN','DBSNMP','XDB','APPQOSSYS','WMSYS','EXFSYS','CTXSYS','ORDSYS','ORDDATA','MDSYS','OLAPSYS')
        ORDER BY VIEW_NAME`,
       config,
     );
@@ -1450,7 +1472,7 @@ async function getProcedureParameters(
         IN_OUT AS "paramMode"
       FROM ALL_ARGUMENTS
       WHERE OBJECT_NAME = '${procName.replace(/'/g, "''")}'
-        AND OWNER NOT IN ('SYS','SYSDBA')
+        AND OWNER NOT IN ('SYSTEM','OUTLN','DBSNMP','XDB','APPQOSSYS','WMSYS','EXFSYS','CTXSYS','ORDSYS','ORDDATA','MDSYS','OLAPSYS')
       ORDER BY POSITION`,
       config,
     );

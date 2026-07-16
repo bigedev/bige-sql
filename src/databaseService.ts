@@ -99,7 +99,7 @@ export class DatabaseService {
       const user = config.user || "SYSDBA";
       const password = config.password || "SYSDBA";
       const dmUrl = `dm://${user}:${password}@${host}:${port}`;
-      const poolAlias = `dmdb_${dmUrl}`;
+      const poolAlias = `dmdb_${host}_${port}_${user}`;
       const dm = dmdb as any;
       if (!dm.pools[poolAlias]) {
         const pool = await dm.createPool({
@@ -112,7 +112,7 @@ export class DatabaseService {
         // createPool 返回的 pool 已自动注册到 dm.pools
         return pool;
       }
-      return dm.pools[poolAlias];
+      return dm.pools.get(poolAlias);
     }
 
     if (isSqlServer(config.type)) {
@@ -138,10 +138,16 @@ export class DatabaseService {
 
     if (isOracle(config.type)) {
       const connectString =
-        config.host && config.port
-          ? `${config.host}:${config.port}/${config.database || "XE"}`
-          : config.database || "XE";
-      return oracledb.createPool({
+        config.connectionString ||
+        (config.host && config.port
+          ? config.oracleUseSid
+            ? `${config.host}:${config.port}:${config.database || "XE"}`
+            : `${config.host}:${config.port}/${config.database || "XE"}`
+          : config.database || "XE");
+      const privilege =
+        config.oraclePrivilege ??
+        (config.user?.toUpperCase() === "SYS" ? oracledb.SYSDBA : undefined);
+      const poolConfig: any = {
         user: config.user || "scott",
         password: config.password || "tiger",
         connectString,
@@ -149,7 +155,9 @@ export class DatabaseService {
         poolMax: 5,
         poolIncrement: 1,
         poolTimeout: 60,
-      });
+      };
+      if (privilege !== undefined) poolConfig.privilege = privilege;
+      return oracledb.createPool(poolConfig);
     }
 
     throw new Error(`Unsupported database type: "${config.type}"`);
@@ -328,15 +336,16 @@ export class DatabaseService {
     if (isSqlServer(config.type)) {
       const request = pool.request();
       const result = await request.query(sql);
-      if (result.recordset?.length > 0)
-        return { rows: result.recordset, isSelect: true };
-      if (result.rowsAffected?.[0] !== undefined && result.rowsAffected[0] > 0)
+      // recordset 为 undefined 表示非查询语句（INSERT/UPDATE/DELETE），为空数组表示查询无结果
+      if (result.recordset !== undefined)
+        return { rows: result.recordset || [], isSelect: true };
+      if (result.rowsAffected?.[0] !== undefined)
         return {
           rows: [{ affectedRows: result.rowsAffected[0] }],
           isSelect: false,
           affectedRows: result.rowsAffected[0],
         };
-      return { rows: [], isSelect: true };
+      return { rows: [], isSelect: false };
     }
 
     if (isOracle(config.type)) {
@@ -346,15 +355,23 @@ export class DatabaseService {
         const result = await conn.execute(sql, [], {
           outFormat: oracledb.OUT_FORMAT_OBJECT,
         });
-        if (result.rows && result.rows.length > 0)
-          return { rows: result.rows as any[], isSelect: true };
-        if (result.rowsAffected !== undefined && result.rowsAffected > 0)
+        if (result.rows && result.rows.length > 0) {
+          const rows = result.rows.map((r: any) => {
+            const normalized: any = {};
+            for (const key of Object.keys(r)) {
+              normalized[key.toLowerCase()] = r[key];
+            }
+            return normalized;
+          });
+          return { rows, isSelect: true };
+        }
+        if (result.rowsAffected !== undefined)
           return {
             rows: [{ affectedRows: result.rowsAffected }],
             isSelect: false,
             affectedRows: result.rowsAffected,
           };
-        return { rows: [], isSelect: true };
+        return { rows: [], isSelect: false };
       } finally {
         await conn.close();
       }
@@ -422,7 +439,7 @@ export class DatabaseService {
     if (isOracle(config.type)) {
       const ownerFilter = schemaName
         ? `AND OWNER = '${schemaName.replace(/'/g, "''")}'`
-        : `AND OWNER NOT IN ('SYS','SYSDBA','SYSAUDITOR','CTISYS')`;
+        : `AND OWNER NOT IN ('SYSTEM','OUTLN','DBSNMP','XDB','APPQOSSYS','WMSYS','EXFSYS','CTXSYS','ORDSYS','ORDDATA','MDSYS','OLAPSYS')`;
       return this.execQuery(
         pool,
         `SELECT TABLE_NAME AS name, 'TABLE' AS type FROM ALL_TABLES WHERE 1=1 ${ownerFilter}
@@ -445,7 +462,8 @@ export class DatabaseService {
     const { pool, config } = await this.getPool(connName, dbName);
     const safeName = tableName.replace(/`/g, "``").replace(/"/g, '""');
     if (isMySQL(config.type)) {
-      return this.execQuery(pool, `DESCRIBE \`${safeName}\``, config);
+      const fullName = dbName ? `\`${dbName}\`.\`${safeName}\`` : `\`${safeName}\``;
+      return this.execQuery(pool, `DESCRIBE ${fullName}`, config);
     }
 
     if (isPostgres(config.type)) {
@@ -544,7 +562,7 @@ export class DatabaseService {
       return this.execQuery(
         pool,
         `SELECT DISTINCT OWNER AS name FROM ALL_TABLES
-        WHERE OWNER NOT IN ('SYS','SYSDBA','SYSAUDITOR','CTISYS')
+        WHERE OWNER NOT IN ('SYSTEM','OUTLN','DBSNMP','XDB','APPQOSSYS','WMSYS','EXFSYS','CTXSYS','ORDSYS','ORDDATA','MDSYS','OLAPSYS')
         ORDER BY name`,
         config,
       );
@@ -555,7 +573,10 @@ export class DatabaseService {
   // ── 架构/数据库列表（含大小） ──────────────────────────
 
   async listSchemas(connName: string, userName?: string): Promise<QueryResult> {
-    const { pool, config } = await this.getPool(connName, userName);
+    // Oracle 的 userName 是 schema 名，不是数据库名，不能传给 getPool 改变 database
+    const rawConfig = this.connectionManager.getConnectionRaw(connName);
+    const dbName = isOracle(rawConfig?.type) ? undefined : userName;
+    const { pool, config } = await this.getPool(connName, dbName);
     if (isPostgres(config.type)) {
       return this.execQuery(
         pool,
@@ -587,7 +608,7 @@ export class DatabaseService {
         FROM (
           SELECT TABLE_SCHEMA, SUM(data_length + index_length) AS total_bytes
           FROM information_schema.TABLES
-          WHERE TABLE_SCHEMA NOT IN ('mysql','performance_schema','sys')
+          WHERE TABLE_SCHEMA NOT IN ('performance_schema','sys')
           GROUP BY TABLE_SCHEMA
         ) AS db_sizes
         ORDER BY TABLE_SCHEMA`,
@@ -609,14 +630,16 @@ export class DatabaseService {
     if (isSqlServer(config.type)) {
       return this.execQuery(
         pool,
-        `SELECT SCHEMA_NAME AS name FROM INFORMATION_SCHEMA.SCHEMATA ORDER BY SCHEMA_NAME`,
+        `SELECT SCHEMA_NAME AS name FROM INFORMATION_SCHEMA.SCHEMATA
+        WHERE SCHEMA_NAME NOT IN ('sys','INFORMATION_SCHEMA','guest','db_accessadmin','db_backupoperator','db_datareader','db_datawriter','db_ddladmin','db_denydatareader','db_denydatawriter','db_owner','db_securityadmin')
+        ORDER BY SCHEMA_NAME`,
         config,
       );
     }
     if (isOracle(config.type)) {
       const ownerFilter = userName
         ? `AND OWNER = '${userName.replace(/'/g, "''")}'`
-        : `AND OWNER NOT IN ('SYS','SYSDBA','SYSAUDITOR','CTISYS')`;
+        : `AND OWNER NOT IN ('SYSTEM','OUTLN','DBSNMP','XDB','APPQOSSYS','WMSYS','EXFSYS','CTXSYS','ORDSYS','ORDDATA','MDSYS','OLAPSYS')`;
       return this.execQuery(
         pool,
         `SELECT DISTINCT OWNER AS name FROM ALL_TABLES WHERE 1=1 ${ownerFilter} ORDER BY name`,
@@ -654,8 +677,8 @@ export class DatabaseService {
       );
     }
     if (isMySQL(config.type)) {
-      const schemaFilter = config.database
-        ? `WHERE ROUTINE_SCHEMA = '${config.database}'`
+      const schemaFilter = safeSchema
+        ? `WHERE ROUTINE_SCHEMA = ${safeSchema}`
         : "";
       return this.execQuery(
         pool,
@@ -676,18 +699,23 @@ export class DatabaseService {
       );
     }
     if (isSqlServer(config.type)) {
+      const schemaFilter = safeSchema
+        ? `WHERE ROUTINE_SCHEMA = ${safeSchema}`
+        : "";
       return this.execQuery(
         pool,
-        `SELECT ROUTINE_NAME AS name, ROUTINE_TYPE AS type FROM INFORMATION_SCHEMA.ROUTINES ORDER BY ROUTINE_NAME`,
+        `SELECT ROUTINE_NAME AS name, ROUTINE_TYPE AS type FROM INFORMATION_SCHEMA.ROUTINES ${schemaFilter} ORDER BY ROUTINE_NAME`,
         config,
       );
     }
     if (isOracle(config.type)) {
+      const ownerFilter = safeSchema
+        ? `AND OWNER = ${safeSchema}`
+        : `AND OWNER NOT IN ('SYSTEM','OUTLN','DBSNMP','XDB','APPQOSSYS','WMSYS','EXFSYS','CTXSYS','ORDSYS','ORDDATA','MDSYS','OLAPSYS')`;
       return this.execQuery(
         pool,
         `SELECT OBJECT_NAME AS name, OBJECT_TYPE AS type FROM ALL_OBJECTS
-        WHERE OBJECT_TYPE IN ('PROCEDURE','FUNCTION')
-          AND OWNER NOT IN ('SYS','SYSDBA')
+        WHERE OBJECT_TYPE IN ('PROCEDURE','FUNCTION') ${ownerFilter}
         ORDER BY OBJECT_NAME`,
         config,
       );
@@ -1082,14 +1110,20 @@ export class DatabaseService {
       );
     }
     if (isSqlServer(config.type)) {
+      // SQL Server: OBJECT_ID 必须带 schema 前缀才能找到非 dbo 下的存储过程
+      const objectId = schemaName
+        ? `OBJECT_ID('${schemaName}.${safeName}')`
+        : `OBJECT_ID('${safeName}')`;
+
       return this.execQuery(
         pool,
-        `SELECT p.name AS "paramName",
-          t.name AS "dataType",
-          p.max_length AS "maxLength"
+        `SELECT p.name,
+          t.name AS type,
+          p.max_length,
+          p.is_output
         FROM sys.parameters p
         JOIN sys.types t ON p.system_type_id = t.system_type_id
-        WHERE p.object_id = OBJECT_ID('${safeName}')
+        WHERE p.object_id = ${objectId}
         ORDER BY p.parameter_id`,
         config,
       );
@@ -1102,7 +1136,7 @@ export class DatabaseService {
           IN_OUT AS "paramMode"
         FROM ALL_ARGUMENTS
         WHERE OBJECT_NAME = '${safeName}'
-          AND OWNER NOT IN ('SYS','SYSDBA')
+          AND OWNER NOT IN ('SYSTEM','OUTLN','DBSNMP','XDB','APPQOSSYS','WMSYS','EXFSYS','CTXSYS','ORDSYS','ORDDATA','MDSYS','OLAPSYS')
         ORDER BY POSITION`,
         config,
       );

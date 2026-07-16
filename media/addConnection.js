@@ -227,11 +227,11 @@
   window.refreshDatabases = function () {
     try {
       var type = document.getElementById("connType").value;
-      if (type === "sqlite" || type === "oracle") {
+      if (type === "sqlite" || type === "oracle" || type === "dameng" || type === "dm8") {
         showToast(
           type === "sqlite"
             ? L.sqliteNoDatabases || "SQLite does not support listing databases"
-            : "Oracle does not support listing databases",
+            : "Oracle/Dameng does not support listing databases",
         );
         return;
       }

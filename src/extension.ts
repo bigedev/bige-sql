@@ -9,7 +9,12 @@ import { DatabaseService } from "./databaseService";
 import { QueryEditorProvider } from "./queryEditorProvider";
 import { ConnectionTreeProvider } from "./connectionTreeProvider";
 import { McpServerTreeProvider, MCP_DEFAULT_PORT } from "./mcpServerProvider";
-import { DbType, quoteName } from "./dbTypes";
+import {
+  DbType,
+  quoteName,
+  isSqlServer,
+  isOracle,
+} from "./dbTypes";
 
 let connectionManager: ConnectionManager;
 let databaseService: DatabaseService;
@@ -478,13 +483,24 @@ async function selectTop100(item: TreeItemData) {
   const tableRef = item.schemaName
     ? `${quoteName(config?.type, item.schemaName)}.${quoteName(config?.type, item.tableName)}`
     : quoteName(config?.type, item.tableName);
+
+  // 根据数据库类型使用不同的分页语法
+  let limitSql: string;
+  if (isSqlServer(config?.type)) {
+    limitSql = `SELECT TOP 100 * FROM ${tableRef}`;
+  } else if (isOracle(config?.type)) {
+    limitSql = `SELECT * FROM ${tableRef} WHERE ROWNUM <= 100`;
+  } else {
+    limitSql = `SELECT * FROM ${tableRef} LIMIT 100`;
+  }
+
   QueryEditorProvider.createOrShow(
     extensionUri,
     item.connectionName,
     item.tableName,
     connectionManager,
     databaseService,
-    `SELECT * FROM ${tableRef} LIMIT 100`,
+    limitSql,
     item.dbName,
   );
 }
