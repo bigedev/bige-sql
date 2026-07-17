@@ -1,95 +1,18 @@
-# === 构建产物（esbuild 已打包所有 JS 依赖） ===
-# 只保留两个入口文件
-out/**
-!out/src/extension.js
-!out/src/server.js
-
-# === 项目源文件（已打包到 JS 中，排除） ===
-.vscode/**
+# 排除源码和构建文件
 .gitignore
+.git/**
 src/**
-build.mjs
-**/*.ts
-**/*.map
-
-# === 开发辅助文件 ===
-compile.sh
-.nvmrc
-test-mcp-http.mjs
-connections.json
-connections.example.json
 tsconfig.json
-package-lock.json
-
-# === 默认排除所有 node_modules ===
-node_modules/**
-
-# === 然后选择性包含 esbuild external 标记的原生驱动 ===
-# better-sqlite3
-!node_modules/better-sqlite3/package.json
-!node_modules/better-sqlite3/lib/**
-!node_modules/better-sqlite3/build/Release/better_sqlite3.node
-
-# dmdb
-!node_modules/dmdb/package.json
-!node_modules/dmdb/index.js
-!node_modules/dmdb/src/**
-!node_modules/dmdb/LICENSE
-
-# oracledb — Thin 模式仅需 JS
-!node_modules/oracledb/package.json
-!node_modules/oracledb/index.js
-!node_modules/oracledb/lib/**
-!node_modules/oracledb/LICENSE.txt
-!node_modules/oracledb/THIRD_PARTY_LICENSES.txt
-
-# mssql — 纯 JS 驱动 + tedious 依赖
-!node_modules/mssql/package.json
-!node_modules/mssql/lib/**
-!node_modules/tedious/package.json
-!node_modules/tedious/lib/**
-!node_modules/@tediousjs/**
-!node_modules/iconv-lite/**
-!node_modules/js-md4/**
-!node_modules/native-duplexpair/**
-!node_modules/bl/**
-!node_modules/readable-stream/**
-!node_modules/inherits/**
-!node_modules/util-deprecate/**
-!node_modules/safe-buffer/**
-!node_modules/string_decoder/**
-!node_modules/buffer/**
-!node_modules/sprintf-js/**
-!node_modules/word-length/**
-
-# mysql2 — 纯 JS 驱动
-!node_modules/mysql2/package.json
-!node_modules/mysql2/index.js
-!node_modules/mysql2/promise.js
-!node_modules/mysql2/lib/**
-!node_modules/aws-ssl-profiles/**
-!node_modules/denque/**
-!node_modules/generate-function/**
-!node_modules/seq-queue/**
-!node_modules/lru.min/**
-!node_modules/lru-cache/**
-!node_modules/yallist/**
-
-# pg — 纯 JS 驱动
-!node_modules/pg/package.json
-!node_modules/pg/lib/**
-!node_modules/pg/connection-string/**
-!node_modules/pg-pool/**
-!node_modules/pg-protocol/**
-!node_modules/pg-types/**
-!node_modules/pgpass/package.json
-!node_modules/pgpass/lib/**
-!node_modules/postgres-bytea/**
-!node_modules/postgres-date/**
-!node_modules/postgres-interval/**
-!node_modules/postgres-range/**
-!node_modules/obuf/**
-!node_modules/packet-reader/**
-!node_modules/xtend/**
-!node_modules/split2/**
-!node_modules/semver/**
+compile.sh
+build.mjs
+test-mcp-http.mjs
+connections.example.json
+node_modules/@types/**
+node_modules/typescript/**
+node_modules/prettier/**
+node_modules/eslint/**
+node_modules/@eslint/**
+node_modules/.package-lock.json
+node_modules/package-lock.json
+**/*.map
+**/tsconfig*.json
