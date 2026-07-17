@@ -37,8 +37,12 @@ export class DatabaseService {
     const config = this.connectionManager.getConnectionRaw(connName);
     if (!config) throw new Error(`Connection "${connName}" does not exist`);
 
+    // Oracle/Dameng 的 dbName 实际是 user/schema，不改变数据库连接
+    const isOraDm = isOracle(config?.type) || isDameng(config?.type);
+    const realDbName = isOraDm ? undefined : dbName;
+
     // 指定了不同数据库时，使用独立连接池
-    const poolKey = dbName ? `${connName}@${dbName}` : connName;
+    const poolKey = realDbName ? `${connName}@${realDbName}` : connName;
 
     if (this.pools[poolKey]) {
       try {
@@ -49,8 +53,8 @@ export class DatabaseService {
       }
     }
 
-    const pool = dbName
-      ? await this.createPool({ ...config, database: dbName })
+    const pool = realDbName
+      ? await this.createPool({ ...config, database: realDbName })
       : await this.createPool(config);
     this.pools[poolKey] = pool;
     return { pool, config };
@@ -286,15 +290,19 @@ export class DatabaseService {
     connName: string,
     sql: string,
     dbName?: string,
+    schemaName?: string,
   ): Promise<QueryResult> {
     const { pool, config } = await this.getPool(connName, dbName);
-    return this.execQuery(pool, sql, config);
+    // Oracle/Dameng: dbName 是 user/schema，作为 schemaName 的 fallback
+    const effectiveSchema = schemaName || ((isOracle(config?.type) || isDameng(config?.type)) ? dbName : undefined);
+    return this.execQuery(pool, sql, config, effectiveSchema);
   }
 
   private async execQuery(
     pool: any,
     sql: string,
     config: DbConfig,
+    schemaName?: string,
   ): Promise<QueryResult> {
     const upper = sql.trim().toUpperCase();
     const isSelect =
@@ -310,6 +318,9 @@ export class DatabaseService {
     }
 
     if (isPostgres(config.type)) {
+      if (schemaName) {
+        await pool.query(`SET search_path TO "${schemaName.replace(/"/g, '""')}"`);
+      }
       const result = await pool.query(sql);
       return { rows: result.rows, isSelect, fields: result.fields };
     }
@@ -333,6 +344,9 @@ export class DatabaseService {
     if (isDameng(config.type)) {
       const conn = await pool.getConnection();
       try {
+        if (schemaName) {
+          await conn.execute(`ALTER SESSION SET CURRENT_SCHEMA = "${schemaName.replace(/"/g, '""')}"`);
+        }
         const result = await conn.execute(sql, [], {
           outFormat: dmdb.OUT_FORMAT_OBJECT,
         });
@@ -378,6 +392,13 @@ export class DatabaseService {
       const oraclePool = pool as oracledb.Pool;
       const conn = await oraclePool.getConnection();
       try {
+        if (schemaName) {
+          await conn.execute(
+            `ALTER SESSION SET CURRENT_SCHEMA = "${schemaName.replace(/"/g, '""')}"`,
+            [],
+            { outFormat: oracledb.OUT_FORMAT_OBJECT },
+          );
+        }
         const result = await conn.execute(sql, [], {
           outFormat: oracledb.OUT_FORMAT_OBJECT,
         });
@@ -443,8 +464,10 @@ export class DatabaseService {
     }
 
     if (isDameng(config.type)) {
-      const ownerFilter = schemaName
-        ? `AND OWNER = '${schemaName.replace(/'/g, "''")}'`
+      // Oracle/Dameng: dbName 是 user/schema，作为 schemaName 的 fallback
+      const actualSchema = schemaName || (isDameng(config.type) ? dbName : undefined);
+      const ownerFilter = actualSchema
+        ? `AND OWNER = '${actualSchema.replace(/'/g, "''")}'`
         : `AND OWNER NOT IN ('SYS','SYSDBA','SYSAUDITOR','CTISYS')`;
       return this.execQuery(
         pool,
@@ -469,8 +492,10 @@ export class DatabaseService {
     }
 
     if (isOracle(config.type)) {
-      const ownerFilter = schemaName
-        ? `AND OWNER = '${schemaName.replace(/'/g, "''")}'`
+      // Oracle/Dameng: dbName 是 user/schema，作为 schemaName 的 fallback
+      const actualSchema = schemaName || (isOracle(config.type) ? dbName : undefined);
+      const ownerFilter = actualSchema
+        ? `AND OWNER = '${actualSchema.replace(/'/g, "''")}'`
         : `AND OWNER NOT IN ('SYSTEM','OUTLN','DBSNMP','XDB','APPQOSSYS','WMSYS','EXFSYS','CTXSYS','ORDSYS','ORDDATA','MDSYS','OLAPSYS')`;
       return this.execQuery(
         pool,
@@ -514,25 +539,34 @@ export class DatabaseService {
     }
 
     if (isDameng(config.type)) {
+      const ownerFiler = schemaName
+        ? ` AND OWNER = '${schemaName.replace(/'/g, "''")}'`
+        : "";
       return this.execQuery(
         pool,
-        `SELECT COLUMN_NAME AS "Field", DATA_TYPE AS "Type", NULLABLE AS "Null", DATA_DEFAULT AS "Default" FROM ALL_TAB_COLUMNS WHERE TABLE_NAME = '${safeName}' ORDER BY COLUMN_ID`,
+        `SELECT COLUMN_NAME AS "Field", DATA_TYPE AS "Type", NULLABLE AS "Null", DATA_DEFAULT AS "Default" FROM ALL_TAB_COLUMNS WHERE TABLE_NAME = '${safeName}'${ownerFiler} ORDER BY COLUMN_ID`,
         config,
       );
     }
 
     if (isSqlServer(config.type)) {
+      const schemaFilter = schemaName
+        ? ` AND TABLE_SCHEMA = '${schemaName.replace(/'/g, "''")}'`
+        : "";
       return this.execQuery(
         pool,
-        `SELECT COLUMN_NAME AS "Field", DATA_TYPE AS "Type", IS_NULLABLE AS "Null", COLUMN_DEFAULT AS "Default" FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '${safeName}' ORDER BY ORDINAL_POSITION`,
+        `SELECT COLUMN_NAME AS "Field", DATA_TYPE AS "Type", IS_NULLABLE AS "Null", COLUMN_DEFAULT AS "Default" FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '${safeName}'${schemaFilter} ORDER BY ORDINAL_POSITION`,
         config,
       );
     }
 
     if (isOracle(config.type)) {
+      const ownerFiler = schemaName
+        ? ` AND OWNER = '${schemaName.replace(/'/g, "''")}'`
+        : "";
       return this.execQuery(
         pool,
-        `SELECT COLUMN_NAME AS "Field", DATA_TYPE AS "Type", NULLABLE AS "Null", DATA_DEFAULT AS "Default" FROM ALL_TAB_COLUMNS WHERE TABLE_NAME = '${safeName}' ORDER BY COLUMN_ID`,
+        `SELECT COLUMN_NAME AS "Field", DATA_TYPE AS "Type", NULLABLE AS "Null", DATA_DEFAULT AS "Default" FROM ALL_TAB_COLUMNS WHERE TABLE_NAME = '${safeName}'${ownerFiler} ORDER BY COLUMN_ID`,
         config,
       );
     }

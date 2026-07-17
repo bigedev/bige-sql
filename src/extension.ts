@@ -465,6 +465,9 @@ async function openQueryEditor(item: TreeItemData) {
     tableName,
     connectionManager,
     databaseService,
+    undefined,
+    item?.dbName,
+    item?.schemaName,
   );
 }
 
@@ -499,6 +502,7 @@ async function selectTop100(item: TreeItemData) {
     databaseService,
     limitSql,
     item.dbName,
+    item.schemaName,
   );
 }
 
