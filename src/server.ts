@@ -168,7 +168,7 @@ async function createPool(
       charset: config.charset || "utf8mb4",
       timezone: config.timezone || "+08:00",
       waitForConnections: true,
-      connectionLimit: 5,
+      connectionLimit: 1,
       queueLimit: 0,
     });
   }
@@ -180,7 +180,7 @@ async function createPool(
       user: config.user || "postgres",
       password: config.password || "",
       database: config.database || "postgres",
-      max: 5,
+      max: 1,
       idleTimeoutMillis: 30000,
     });
     // 初始化连接池
@@ -202,22 +202,12 @@ async function createPool(
     const port = config.port || 5236;
     const user = config.user || "SYSDBA";
     const password = config.password || "SYSDBA";
-    const dmUrl = `dm://${user}:${password}@${host}:${port}`;
-    const poolAlias = `dmdb_${name}`;
-    const dm = dmdb as any;
-
-    if (!dm.pools[poolAlias]) {
-      const pool = await dm.createPool({
-        poolAlias,
-        connectString: dmUrl,
-        poolMax: 5,
-        poolMin: 0,
-        poolTimeout: 60,
-      });
-      // createPool 返回的 pool 已自动注册到 dm.pools
-      return pool;
-    }
-    return dm.pools.get(poolAlias);
+    const dmUrl = `dm://${user}:${password}@${host}:${port}?autoCommit=false&loginEncrypt=false&connectTimeout=5000&socketTimeout=10000`;
+    // 不使用连接池，每次 getConnection 创建直连
+    return {
+      _dmUrl: dmUrl,
+      getConnection: () => dmdb.getConnection(dmUrl),
+    };
   }
 
   if (isSqlServer(config.type)) {
@@ -232,7 +222,7 @@ async function createPool(
         trustServerCertificate: true,
       },
       pool: {
-        max: 5,
+        max: 1,
         min: 0,
         idleTimeoutMillis: 30000,
       },
@@ -257,7 +247,7 @@ async function createPool(
       password: config.password || "tiger",
       connectString,
       poolMin: 0,
-      poolMax: 5,
+      poolMax: 1,
       poolIncrement: 1,
       poolTimeout: 60,
     };
@@ -311,16 +301,21 @@ async function executeQuery(
 
   if (isDameng(config.type)) {
     const dmPool = pool as any;
-    const result = await dmPool.execute(sql, [], {
-      outFormat: dmdb.OUT_FORMAT_OBJECT,
-    });
-    if (result.rows && result.rows.length > 0) {
-      return result.rows;
+    const conn = await dmPool.getConnection();
+    try {
+      const result = await conn.execute(sql, [], {
+        outFormat: dmdb.OUT_FORMAT_OBJECT,
+      });
+      if (result.rows && result.rows.length > 0) {
+        return result.rows;
+      }
+      if (result.rowsAffected !== undefined) {
+        return { affectedRows: result.rowsAffected };
+      }
+      return result.rows || [];
+    } finally {
+      await conn.close();
     }
-    if (result.rowsAffected !== undefined) {
-      return { affectedRows: result.rowsAffected };
-    }
-    return result.rows || [];
   }
 
   if (isSqlServer(config.type)) {
@@ -380,7 +375,7 @@ async function closePool(
   } else if (isOracle(config.type)) {
     await (pool as oracledb.Pool).close();
   }
-  // dmdb 连接池由驱动管理，无需手动关闭
+  // dameng 为直连模式，无需关闭池
 }
 
 /** 检查连接池是否仍有效，失效时抛出异常 */
@@ -406,8 +401,14 @@ async function testPool(
     } finally {
       await conn.close();
     }
+  } else if (isDameng(config.type)) {
+    const conn = await (pool as any).getConnection();
+    try {
+      await conn.execute("SELECT 1");
+    } finally {
+      await conn.close();
+    }
   }
-  // dmdb 由连接池自动管理健康检查
 }
 
 // ─── 表信息查询 ──────────────────────────────────────────────────
@@ -455,12 +456,16 @@ async function listTables(
   }
 
   if (isDameng(config.type)) {
+    const ownerFilter = config.user
+      ? `WHERE OWNER = '${config.user.replace(/'/g, "''")}'`
+      : `WHERE OWNER NOT IN ('SYS','SYSDBA','SYSAUDITOR','CTISYS')`;
     return executeQuery(
       pool,
-      `SELECT TABLE_NAME AS name, TABLE_TYPE AS type
-       FROM ALL_TABLES
-       WHERE OWNER NOT IN ('SYS','SYSDBA','SYSAUDITOR','CTISYS')
-       ORDER BY TABLE_NAME`,
+      `SELECT TABLE_NAME AS name, 'TABLE' AS type FROM ALL_TABLES ${ownerFilter}
+       UNION ALL
+       SELECT OBJECT_NAME AS name, 'VIEW' AS type FROM ALL_OBJECTS
+       WHERE OBJECT_TYPE = 'VIEW' ${ownerFilter}
+       ORDER BY name`,
       config,
     );
   }
@@ -1461,6 +1466,18 @@ async function getProcedureParameters(
       JOIN sys.types t ON p.system_type_id = t.system_type_id
       WHERE p.object_id = OBJECT_ID('${procName.replace(/'/g, "''")}')
       ORDER BY p.parameter_id`,
+      config,
+    );
+  }
+  if (isDameng(config.type)) {
+    return executeQuery(
+      pool,
+      `SELECT ARGUMENT_NAME AS "paramName",
+        DATA_TYPE AS "dataType",
+        IN_OUT AS "paramMode"
+      FROM ALL_ARGUMENTS
+      WHERE OBJECT_NAME = '${procName.replace(/'/g, "''")}'
+      ORDER BY POSITION`,
       config,
     );
   }

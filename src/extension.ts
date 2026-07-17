@@ -412,9 +412,6 @@ async function deleteConnection(item: TreeItemData) {
 function refreshConnections() {
   connectionManager.reload();
   connectionTreeProvider.refresh();
-  vscode.window.showInformationMessage(
-    vscode.l10n.t("Connection list refreshed"),
-  );
 }
 
 async function testConnection(item: TreeItemData) {
@@ -507,9 +504,7 @@ async function selectTop100(item: TreeItemData) {
 
 async function startMcpServer() {
   if (mcpServerProcess) {
-    vscode.window.showInformationMessage(
-      vscode.l10n.t("MCP Server already running"),
-    );
+    console.log("MCP Server already running");
     return;
   }
 
@@ -542,9 +537,6 @@ async function startMcpServer() {
         const url = match ? match[0] : `http://127.0.0.1:${mcpServerPort}/mcp`;
         // 持久化运行状态
         extensionContext?.globalState.update(MCP_WAS_RUNNING_KEY, true);
-        vscode.window.showInformationMessage(
-          vscode.l10n.t("🚀 MCP Server started — {url}", { url }),
-        );
         updateMcpStatusBar();
         mcpTreeProvider?.refresh();
       }
@@ -558,11 +550,6 @@ async function startMcpServer() {
     // 进程意外退出时清除状态
     if (code && code > 0) {
       extensionContext?.globalState.update(MCP_WAS_RUNNING_KEY, false);
-      vscode.window.showErrorMessage(
-        vscode.l10n.t("❌ MCP Server exited abnormally (code: {code})", {
-          code: String(code),
-        }),
-      );
     }
   });
 
@@ -570,21 +557,11 @@ async function startMcpServer() {
     mcpServerProcess = undefined;
     updateMcpStatusBar();
     mcpTreeProvider?.refresh();
-    vscode.window.showErrorMessage(
-      vscode.l10n.t("❌ Failed to start MCP Server: {message}", {
-        message: err.message,
-      }),
-    );
   });
-
-  vscode.window.showInformationMessage(vscode.l10n.t("Starting MCP Server…"));
 }
 
 function stopMcpServer() {
   if (!mcpServerProcess) {
-    vscode.window.showInformationMessage(
-      vscode.l10n.t("MCP Server is not running"),
-    );
     return;
   }
   mcpServerProcess.kill("SIGTERM");
@@ -593,7 +570,6 @@ function stopMcpServer() {
   extensionContext?.globalState.update(MCP_WAS_RUNNING_KEY, false);
   updateMcpStatusBar();
   mcpTreeProvider?.refresh();
-  vscode.window.showInformationMessage(vscode.l10n.t("MCP Server stopped"));
 }
 
 function updateMcpStatusBar() {

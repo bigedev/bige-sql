@@ -67,7 +67,7 @@ export class DatabaseService {
         charset: config.charset || "utf8mb4",
         timezone: config.timezone || "+08:00",
         waitForConnections: true,
-        connectionLimit: 5,
+        connectionLimit: 1,
         queueLimit: 0,
       });
     }
@@ -79,7 +79,7 @@ export class DatabaseService {
         user: config.user || "postgres",
         password: config.password || "",
         database: config.database || "postgres",
-        max: 5,
+        max: 1,
         idleTimeoutMillis: 30000,
       });
       await pool.query("SELECT 1");
@@ -98,21 +98,12 @@ export class DatabaseService {
       const port = config.port || 5236;
       const user = config.user || "SYSDBA";
       const password = config.password || "SYSDBA";
-      const dmUrl = `dm://${user}:${password}@${host}:${port}`;
-      const poolAlias = `dmdb_${host}_${port}_${user}`;
-      const dm = dmdb as any;
-      if (!dm.pools[poolAlias]) {
-        const pool = await dm.createPool({
-          poolAlias,
-          connectString: dmUrl,
-          poolMax: 5,
-          poolMin: 0,
-          poolTimeout: 60,
-        });
-        // createPool 返回的 pool 已自动注册到 dm.pools
-        return pool;
-      }
-      return dm.pools.get(poolAlias);
+      const dmUrl = `dm://${user}:${password}@${host}:${port}?autoCommit=false&loginEncrypt=false&connectTimeout=5000&socketTimeout=10000`;
+      // 不使用连接池，每次 getConnection 创建直连
+      return {
+        _dmUrl: dmUrl,
+        getConnection: () => dmdb.getConnection(dmUrl),
+      };
     }
 
     if (isSqlServer(config.type)) {
@@ -127,7 +118,7 @@ export class DatabaseService {
           trustServerCertificate: true,
         },
         pool: {
-          max: 5,
+          max: 1,
           min: 0,
           idleTimeoutMillis: 30000,
         },
@@ -152,7 +143,7 @@ export class DatabaseService {
         password: config.password || "tiger",
         connectString,
         poolMin: 0,
-        poolMax: 5,
+        poolMax: 1,
         poolIncrement: 1,
         poolTimeout: 60,
       };
@@ -182,8 +173,14 @@ export class DatabaseService {
       } finally {
         await conn.close();
       }
+    } else if (isDameng(config.type)) {
+      const conn = await (pool as any).getConnection();
+      try {
+        await conn.execute("SELECT 1");
+      } finally {
+        await conn.close();
+      }
     }
-    // dameng 无需测试
   }
 
   async testConnection(config: DbConfig): Promise<boolean> {
@@ -219,8 +216,22 @@ export class DatabaseService {
         } finally {
           await conn.close();
         }
+      } else if (isDameng(config.type)) {
+        // 绕过连接池，直接连接以获取真实错误信息（池会吞掉认证异常）
+        const host = config.host || "127.0.0.1";
+        const port = config.port || 5236;
+        const user = config.user || "SYSDBA";
+        const password = config.password || "SYSDBA";
+        const dmUrl = `dm://${user}:${password}@${host}:${port}?autoCommit=false&loginEncrypt=false&connectTimeout=5000&socketTimeout=10000`;
+        const conn = await dmdb.getConnection(dmUrl);
+        try {
+          const result = await conn.execute("SELECT 1 AS result FROM DUAL");
+          if (!result || result.rows?.length === 0)
+            throw new Error("無返回結果");
+        } finally {
+          await conn.close();
+        }
       }
-      // dameng createPool 已实际建立连接，无需额外测试
       return true;
     } finally {
       await this.closePool(pool, config);
@@ -320,17 +331,32 @@ export class DatabaseService {
     }
 
     if (isDameng(config.type)) {
-      const result = await pool.execute(sql, [], {
-        outFormat: dmdb.OUT_FORMAT_OBJECT,
-      });
-      if (result.rows?.length > 0) return { rows: result.rows, isSelect: true };
-      if (result.rowsAffected !== undefined)
-        return {
-          rows: [{ affectedRows: result.rowsAffected }],
-          isSelect: false,
-          affectedRows: result.rowsAffected,
-        };
-      return { rows: result.rows || [], isSelect: true };
+      const conn = await pool.getConnection();
+      try {
+        const result = await conn.execute(sql, [], {
+          outFormat: dmdb.OUT_FORMAT_OBJECT,
+        });
+        if (result.rows?.length > 0) {
+          // 归一化列名为小写（达梦返回的列名可能为大写）
+          const rows = result.rows.map((r: any) => {
+            const normalized: any = {};
+            for (const key of Object.keys(r)) {
+              normalized[key.toLowerCase()] = r[key];
+            }
+            return normalized;
+          });
+          return { rows, isSelect: true };
+        }
+        if (result.rowsAffected !== undefined)
+          return {
+            rows: [{ affectedRows: result.rowsAffected }],
+            isSelect: false,
+            affectedRows: result.rowsAffected,
+          };
+        return { rows: result.rows || [], isSelect: true };
+      } finally {
+        await conn.close();
+      }
     }
 
     if (isSqlServer(config.type)) {
@@ -371,7 +397,9 @@ export class DatabaseService {
             isSelect: false,
             affectedRows: result.rowsAffected,
           };
-        return { rows: [], isSelect: false };
+        // SELECT 空结果集：rows 可能为 undefined 或 []，统一返回空数组
+        const emptyRows = result.rows || [];
+        return { rows: emptyRows, isSelect: true };
       } finally {
         await conn.close();
       }
@@ -420,7 +448,11 @@ export class DatabaseService {
         : `AND OWNER NOT IN ('SYS','SYSDBA','SYSAUDITOR','CTISYS')`;
       return this.execQuery(
         pool,
-        `SELECT TABLE_NAME AS name, TABLE_TYPE AS type FROM ALL_TABLES WHERE 1=1 ${ownerFilter} ORDER BY TABLE_NAME`,
+        `SELECT TABLE_NAME AS name, 'TABLE' AS type FROM ALL_TABLES WHERE 1=1 ${ownerFilter}
+         UNION ALL
+         SELECT OBJECT_NAME AS name, 'VIEW' AS type FROM ALL_OBJECTS
+         WHERE OBJECT_TYPE = 'VIEW' ${ownerFilter}
+         ORDER BY name`,
         config,
       );
     }
@@ -1128,6 +1160,21 @@ export class DatabaseService {
         config,
       );
     }
+    if (isDameng(config.type)) {
+      const ownerFilter = schemaName
+        ? ` AND OWNER = '${schemaName.replace(/'/g, "''")}'`
+        : "";
+      return this.execQuery(
+        pool,
+        `SELECT ARGUMENT_NAME AS "paramName",
+          DATA_TYPE AS "dataType",
+          IN_OUT AS "paramMode"
+        FROM ALL_ARGUMENTS
+        WHERE OBJECT_NAME = '${safeName}'${ownerFilter}
+        ORDER BY POSITION`,
+        config,
+      );
+    }
     if (isOracle(config.type)) {
       return this.execQuery(
         pool,
@@ -1154,7 +1201,7 @@ export class DatabaseService {
     } else if (isOracle(config.type)) {
       await (pool as oracledb.Pool).close();
     }
-    // dameng 无需手动关闭
+    // dameng 为直连模式，无需关闭池
   }
 
   async closeAll(): Promise<void> {

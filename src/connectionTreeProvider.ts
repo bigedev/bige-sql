@@ -44,6 +44,7 @@ import {
   isSQLite,
   isSqlServer,
   isOracle,
+  isDameng,
 } from "./dbTypes";
 
 /** PNG 图标文件名映射 */
@@ -164,9 +165,9 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
 
       // 用户（DM）→ 架构列表
       case CTX.USER: {
-        // Oracle 的 user 就是 schema，跳过重复的 schema 层直接显示对象分组
+        // Oracle/Dameng 的 user 就是 schema，跳过重复的 schema 层直接显示对象分组
         const userCfg = this.connectionManager.getConnectionRaw(conn);
-        if (isOracle(userCfg?.type)) {
+        if (isOracle(userCfg?.type) || isDameng(userCfg?.type)) {
           return this.getObjectGroupItems(conn, element.schemaName, element.dbName);
         }
         return this.getSchemaItems(conn, element.schemaName);
@@ -454,8 +455,8 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
         return items;
       }
 
-      // Oracle 的 userName 是 schema 名不是数据库名，不能设为 dbName
-      const isOracleType = isOracle(config.type);
+      // Oracle/Dameng 的 userName 是 schema 名不是数据库名，不能设为 dbName
+      const isOracleType = isOracle(config.type) || isDameng(config.type);
       // MySQL 中 schema = database，需要将 schema 名作为 dbName 传递
       const isMySQLType = isMySQL(config.type);
 
