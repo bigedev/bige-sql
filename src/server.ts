@@ -28,6 +28,11 @@ import oracledb from "oracledb";
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import type { IncomingMessage, ServerResponse } from "http";
+
+// 模块级设置：将 CLOB/NCLOB 以字符串返回，BLOB 以 Buffer 返回，
+// 避免 Lob 对象（内部含 ConnectDescription 循环引用）导致 JSON 序列化失败。
+oracledb.fetchAsString = [oracledb.CLOB, oracledb.NCLOB];
+oracledb.fetchAsBuffer = [oracledb.BLOB];
 import {
   isMySQL,
   isPostgres,
@@ -336,6 +341,7 @@ async function executeQuery(
     const oraclePool = pool as oracledb.Pool;
     const conn = await oraclePool.getConnection();
     try {
+      // fetchAsString 已在模块级设置，CLOB/NCLOB 以字符串返回
       const result = await conn.execute(sql, [], {
         outFormat: oracledb.OUT_FORMAT_OBJECT,
       });
@@ -343,7 +349,15 @@ async function executeQuery(
         return result.rows.map((r: any) => {
           const normalized: any = {};
           for (const key of Object.keys(r)) {
-            normalized[key.toLowerCase()] = r[key];
+            let val = r[key];
+            // 兜底：如果仍有 Lob 对象（如 BLOB），安全转为字符串
+            if (typeof val === "object" && val !== null &&
+                val.constructor?.name === "Lob" && typeof val.pipe === "function") {
+              const t = val.type;
+              val = t === oracledb.CLOB || t === oracledb.NCLOB ? "[CLOB]"
+                  : t === oracledb.BLOB ? "[BLOB]" : "[LOB]";
+            }
+            normalized[key.toLowerCase()] = val;
           }
           return normalized;
         });

@@ -18,11 +18,96 @@ import {
   isOracle,
 } from "./dbTypes";
 
+// 设置 oracledb 全局选项：将 CLOB/NCLOB 以字符串返回，BLOB 以 Buffer 返回，
+// 避免 Lob 对象（内部含 ConnectDescription 循环引用）导致 JSON 序列化失败。
+// 注意：这些是模块级设置，不能作为 execute() 的选项传入。
+oracledb.fetchAsString = [oracledb.CLOB, oracledb.NCLOB];
+oracledb.fetchAsBuffer = [oracledb.BLOB];
+
 interface QueryResult {
   rows: any[];
   isSelect: boolean;
   fields?: any[];
   affectedRows?: number;
+}
+
+/**
+ * 将数据库返回值安全转为可 JSON 序列化的形式。
+ *
+ * oracledb 对 CLOB/NCLOB 列默认返回 Lob 流对象（非字符串），
+ * Lob 对象内部含有 C++ 级别的循环引用（ConnectDescription → cOpts → ConnOption → desc），
+ * 在 webview.postMessage 序列化时会抛出 "Converting circular structure to JSON" 错误。
+ *
+ * 此函数递归处理：
+ * - Lob 对象 → 以类型名替代（如 "[CLOB]"）
+ * - Date → ISO 字符串
+ * - Buffer/Uint8Array → base64 字符串
+ * - 普通对象/数组 → 递归处理每个属性
+ * - 其他不可序列化类型（函数、Symbol 等）→ 转为字符串
+ * - 检测循环引用 → 替换为 "[Circular]"
+ *
+ * 注意：oracledb 的 Lob.type 是 DbType 对象（如 oracledb.CLOB），不是数字，
+ *       需用 === 直接比较对象引用。
+ */
+function safeValue(val: any, seen?: WeakSet<object>): any {
+  if (val === null || val === undefined) return val;
+
+  // 基本类型直接返回
+  if (typeof val === "string") return val;
+  if (typeof val === "number") return val;
+  if (typeof val === "boolean") return val;
+
+  // Date → ISO 字符串
+  if (val instanceof Date) return val.toISOString();
+
+  // Buffer/Uint8Array → base64 字符串（BLOB 等二进制数据）
+  if (Buffer.isBuffer(val) || val instanceof Uint8Array) {
+    return Buffer.from(val).toString("base64");
+  }
+
+  // oracledb Lob 对象检测：
+  //   Lob.type 是 DbType 对象（而非数字），用 === 与 oracledb.CLOB/NCLOB/BLOB 比较
+  if (typeof val === "object" && val.constructor?.name === "Lob" && typeof val.pipe === "function") {
+    // 使用 oracledb 的 DbType 常量比较
+    const t = val.type;
+    const typeName =
+      t === oracledb.CLOB || t === oracledb.NCLOB ? "CLOB"
+      : t === oracledb.BLOB ? "BLOB"
+      : `LOB`;
+    return `[${typeName}]`;
+  }
+
+  // 递归处理普通对象/数组（含循环引用检测）
+  if (typeof val === "object") {
+    if (!seen) seen = new WeakSet();
+    if (seen.has(val)) return "[Circular]";
+    seen.add(val);
+
+    // 检查构造函数 — 非标准构造函数的对象转字符串
+    const ctor = val.constructor?.name;
+    if (ctor && ctor !== "Object" && ctor !== "Array") {
+      // 尝试 String()，如果失败则用类型名
+      try {
+        const str = String(val);
+        return str === "[object Object]" ? `[${ctor}]` : str;
+      } catch {
+        return `[${ctor}]`;
+      }
+    }
+
+    if (Array.isArray(val)) {
+      return val.map((v) => safeValue(v, seen));
+    }
+
+    const result: any = {};
+    for (const key of Object.keys(val)) {
+      result[key] = safeValue(val[key], seen);
+    }
+    return result;
+  }
+
+  // 函数、Symbol 等
+  return String(val);
 }
 
 export class DatabaseService {
@@ -355,7 +440,7 @@ export class DatabaseService {
           const rows = result.rows.map((r: any) => {
             const normalized: any = {};
             for (const key of Object.keys(r)) {
-              normalized[key.toLowerCase()] = r[key];
+              normalized[key.toLowerCase()] = safeValue(r[key]);
             }
             return normalized;
           });
@@ -399,14 +484,17 @@ export class DatabaseService {
             { outFormat: oracledb.OUT_FORMAT_OBJECT },
           );
         }
+        // fetchAsString 已在模块级设置（见文件头部），
+        // oracledb 会自动将 CLOB/NCLOB 以字符串返回，避免 Lob 对象。
         const result = await conn.execute(sql, [], {
           outFormat: oracledb.OUT_FORMAT_OBJECT,
         });
         if (result.rows && result.rows.length > 0) {
+          // 行归一化 + 安全兜底（如有 BLOB 等仍可能返回 Lob 对象）
           const rows = result.rows.map((r: any) => {
             const normalized: any = {};
             for (const key of Object.keys(r)) {
-              normalized[key.toLowerCase()] = r[key];
+              normalized[key.toLowerCase()] = safeValue(r[key]);
             }
             return normalized;
           });
