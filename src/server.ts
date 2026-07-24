@@ -251,9 +251,9 @@ async function createPool(
       config.connectionString ||
       (config.host && config.port
         ? config.oracleUseSid
-          ? `${config.host}:${config.port}:${config.database || "XE"}`
-          : `${config.host}:${config.port}/${config.database || "XE"}`
-        : config.database || "XE");
+          ? `${config.host}:${config.port}:${config.database || "ORCL"}`
+          : `${config.host}:${config.port}/${config.database || "ORCL"}`
+        : config.database || "ORCL");
     const privilege =
       config.oraclePrivilege ??
       (config.user?.toUpperCase() === "SYS" ? oracledb.SYSDBA : undefined);

@@ -4,7 +4,6 @@
  */
 (function () {
   const vscode = acquireVsCodeApi();
-  let dbListCache = [];
 
   // 診斷：頁面載入完成
   const L = window.LOCALE || {};
@@ -16,145 +15,103 @@
 
   // ─── 数据库类型切换 ──────────────────────────────
 
+  // 各数据库类型的默认端口
+  const DEFAULT_PORTS = {
+    mysql: 3306,
+    postgresql: 5432,
+    sqlserver: 1433,
+    oracle: 1521,
+    dameng: 5236,
+  };
+
+  // 各数据库类型的默认用户
+  const DEFAULT_USERS = {
+    mysql: "root",
+    postgresql: "postgres",
+    sqlserver: "sa",
+    oracle: "scott",
+    dameng: "SYSDBA",
+  };
+
+  // 各数据库类型的默认主机
+  const DEFAULT_HOSTS = {
+    mysql: "127.0.0.1",
+    postgresql: "127.0.0.1",
+    sqlserver: "127.0.0.1",
+    oracle: "127.0.0.1",
+    dameng: "127.0.0.1",
+  };
+
+  // 数据库类型对应的标签文本（使用本地化字符串）
+  const DB_LABELS = {
+    mysql: L.labelDbName || "Database Name",
+    postgresql: L.labelDbName || "Database Name",
+    sqlserver: L.labelDbName || "Database Name",
+    oracle: L.labelSid || "SID / Service Name",
+    dameng: L.labelSchema || "Schema Name",
+  };
+
+  const DB_PLACEHOLDERS = {
+    mysql: L.placeholderDbOptional || "mydb (optional)",
+    postgresql: L.placeholderDbOptional || "mydb (optional)",
+    sqlserver: L.placeholderDbOptional || "mydb (optional)",
+    oracle: L.placeholderOracle || "ORCL or pdbname",
+    dameng: L.placeholderSchema || "schema name (optional)",
+  };
+
   document.getElementById("connType").addEventListener("change", function () {
-    const isSqlite = this.value === "sqlite";
+    const type = this.value;
+    const isSqlite = type === "sqlite";
+    const isOracle = type === "oracle";
+
     document.getElementById("tcpFields").style.display = isSqlite
       ? "none"
       : "block";
     document.getElementById("sqliteField").style.display = isSqlite
       ? "block"
       : "none";
+
+    // 数据库名字段：仅 Oracle 显示（SID/服务名），其他类型隐藏
+    var dbGroup = document.getElementById("dbGroup");
+    if (dbGroup) {
+      dbGroup.style.display = isOracle ? "block" : "none";
+    }
+
+    // 更新标签和占位符
+    var dbLabel = document.getElementById("dbLabel");
+    var dbInput = document.getElementById("connDatabase");
+    if (isOracle) {
+      dbLabel.textContent = DB_LABELS.oracle;
+      if (!dbInput._userModified) {
+        dbInput.placeholder = DB_PLACEHOLDERS.oracle;
+      }
+    }
+
+    // 自动填充默认值（未手动修改过时）
+    if (!isSqlite && DEFAULT_PORTS[type]) {
+      var portInput = document.getElementById("connPort");
+      if (!portInput._userModified) {
+        portInput.placeholder = String(DEFAULT_PORTS[type]);
+      }
+      var userInput = document.getElementById("connUser");
+      if (!userInput._userModified && DEFAULT_USERS[type]) {
+        userInput.placeholder = DEFAULT_USERS[type];
+      }
+      var hostInput = document.getElementById("connHost");
+      if (!hostInput._userModified && DEFAULT_HOSTS[type]) {
+        hostInput.placeholder = DEFAULT_HOSTS[type];
+      }
+    }
   });
 
-  // 输入过滤下拉
-  document
-    .getElementById("connDatabase")
-    .addEventListener("input", function () {
-      const dropdown = document.getElementById("dbDropdown");
-      if (!dropdown.classList.contains("open")) return;
-      renderDropdown(dropdown, this.value);
-    });
-
-  // 聚焦时显示下拉
-  document
-    .getElementById("connDatabase")
-    .addEventListener("focus", function () {
-      const dropdown = document.getElementById("dbDropdown");
-      if (dbListCache.length > 0) {
-        renderDropdown(dropdown, this.value);
-        dropdown.classList.add("open");
-      }
-    });
-
-  // 点击外部关闭下拉
-  document.addEventListener("click", function (e) {
-    const wrapper = document.querySelector(".db-combo-wrapper");
-    if (wrapper && !wrapper.contains(e.target)) {
-      document.getElementById("dbDropdown").classList.remove("open");
-    }
-  });
-
-  // 键盘导航
-  document
-    .getElementById("connDatabase")
-    .addEventListener("keydown", function (e) {
-      const dropdown = document.getElementById("dbDropdown");
-      if (!dropdown.classList.contains("open")) return;
-      const items = dropdown.querySelectorAll(
-        ".db-item:not(.db-empty):not(.db-search-info)",
-      );
-      const selected = dropdown.querySelector(".db-item.selected");
-      let idx = -1;
-      if (selected) idx = Array.from(items).indexOf(selected);
-
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        const next = Math.min(idx + 1, items.length - 1);
-        items.forEach(function (i) {
-          i.classList.remove("selected");
-        });
-        if (next >= 0) items[next].classList.add("selected");
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        const prev = Math.max(idx - 1, 0);
-        items.forEach(function (i) {
-          i.classList.remove("selected");
-        });
-        if (items.length > 0) items[prev].classList.add("selected");
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        if (selected) {
-          this.value = selected.dataset.db;
-          dropdown.classList.remove("open");
-        }
-      } else if (e.key === "Escape") {
-        dropdown.classList.remove("open");
-      }
-    });
-
-  // ─── 下拉菜单 ────────────────────────────────────
-
-  window.toggleDropdown = function () {
-    const dropdown = document.getElementById("dbDropdown");
-    if (dbListCache.length === 0) {
-      refreshDatabases();
-      return;
-    }
-    dropdown.classList.toggle("open");
-    if (dropdown.classList.contains("open")) {
-      renderDropdown(dropdown, document.getElementById("connDatabase").value);
-    }
-  };
-
-  function renderDropdown(dropdown, filterText) {
-    var filtered = filterText
-      ? dbListCache.filter(function (db) {
-          return db.toLowerCase().includes(filterText.toLowerCase());
-        })
-      : dbListCache;
-
-    var html =
-      '<div class="db-search-info">' +
-      (filterText
-        ? (L.dbSearchInfoFiltered || "Total {0} databases, filtered {1}")
-            .replace("{0}", dbListCache.length)
-            .replace("{1}", filtered.length)
-        : (L.dbSearchInfo || "Total {0} databases").replace(
-            "{0}",
-            dbListCache.length,
-          )) +
-      "</div>";
-    if (filtered.length === 0) {
-      html +=
-        '<div class="db-empty">' +
-        (L.noMatchingDatabases || "No matching databases") +
-        "</div>";
-    } else {
-      for (var i = 0; i < filtered.length; i++) {
-        var db = filtered[i];
-        var selected =
-          db === document.getElementById("connDatabase").value
-            ? " selected"
-            : "";
-        html +=
-          '<div class="db-item' +
-          selected +
-          '" data-db="' +
-          db.replace(/"/g, "&quot;") +
-          '" onclick="selectDb(\'' +
-          db.replace(/'/g, "\\'") +
-          "')\">🗄️ " +
-          db +
-          "</div>";
-      }
-    }
-    dropdown.innerHTML = html;
+  // 标记用户已修改的字段，避免切换类型时覆盖
+  function markModified(evt) {
+    evt.target._userModified = true;
   }
-
-  window.selectDb = function (db) {
-    document.getElementById("connDatabase").value = db;
-    document.getElementById("dbDropdown").classList.remove("open");
-  };
+  document.getElementById("connPort").addEventListener("input", markModified);
+  document.getElementById("connUser").addEventListener("input", markModified);
+  document.getElementById("connHost").addEventListener("input", markModified);
+  document.getElementById("connDatabase").addEventListener("input", markModified);
 
   // ─── 获取表单配置 ────────────────────────────────
 
@@ -222,49 +179,6 @@
     });
   };
 
-  // ─── 刷新数据库列表 ──────────────────────────────
-
-  window.refreshDatabases = function () {
-    try {
-      var type = document.getElementById("connType").value;
-      if (type === "sqlite" || type === "oracle" || type === "dameng" || type === "dm8") {
-        showToast(
-          type === "sqlite"
-            ? L.sqliteNoDatabases || "SQLite does not support listing databases"
-            : "Oracle/Dameng does not support listing databases",
-        );
-        return;
-      }
-      var btn = document.getElementById("refreshDbBtn");
-      if (!btn) return;
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spin"></span>';
-      var config = getConfig();
-      vscode.postMessage({
-        command: "refreshDatabases",
-        config: config,
-      });
-    } catch (err) {
-      var rd = document.getElementById("testResult");
-      if (rd) {
-        rd.textContent = "❌ " + (L.error || "Error") + ": " + err.message;
-        rd.className = "test-error";
-        rd.style.display = "block";
-      }
-    }
-  };
-
-  // ─── Toast ─────────────────────────────────────────
-
-  function showToast(msg) {
-    var rd = document.getElementById("testResult");
-    if (rd) {
-      rd.textContent = msg;
-      rd.className = "";
-      rd.style.display = "block";
-    }
-  }
-
   // ─── 接收扩展消息 ─────────────────────────────────
 
   window.addEventListener("message", function (event) {
@@ -281,42 +195,6 @@
       var pathInput = document.getElementById("connPath");
       if (pathInput) {
         pathInput.value = msg.path;
-      }
-    }
-
-    if (msg.command === "databasesList") {
-      var btn = document.getElementById("refreshDbBtn");
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = "↻";
-      }
-      var rd = document.getElementById("testResult");
-      if (msg.error) {
-        rd.textContent =
-          "❌ " +
-          (L.listDatabasesFailed || "Failed to list databases") +
-          ": " +
-          msg.error;
-        rd.className = "test-error";
-        rd.style.display = "block";
-        return;
-      }
-      dbListCache = msg.databases || [];
-      rd.textContent =
-        "✅ " +
-        (L.databasesLoaded || "Loaded {0} databases").replace(
-          "{0}",
-          dbListCache.length,
-        );
-      rd.className = "test-success";
-      rd.style.display = "block";
-      // 自动弹出下拉
-      var dropdown = document.getElementById("dbDropdown");
-      renderDropdown(dropdown, "");
-      dropdown.classList.add("open");
-      var input = document.getElementById("connDatabase");
-      if (!input.value && dbListCache.length > 0) {
-        input.value = dbListCache[0];
       }
     }
   });

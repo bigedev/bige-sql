@@ -693,17 +693,15 @@ function getAddConnectionHtml(
   // Build localized strings for webview JS
   const locale = {
     jsLoaded: vscode.l10n.t("✅ JS loaded"),
-    sqliteNoDatabases: vscode.l10n.t(
-      "SQLite does not support listing databases",
-    ),
     nameRequired: vscode.l10n.t("Please enter a connection name"),
     testing: vscode.l10n.t("⏳ Testing\u2026"),
-    dbSearchInfo: vscode.l10n.t("Total {0} databases"),
-    dbSearchInfoFiltered: vscode.l10n.t("Total {0} databases, filtered {1}"),
-    noMatchingDatabases: vscode.l10n.t("No matching databases"),
-    databasesLoaded: vscode.l10n.t("Loaded {0} databases"),
-    listDatabasesFailed: vscode.l10n.t("Failed to list databases"),
-    error: vscode.l10n.t("Error"),
+    // 数据库字段标签（按类型切换时使用）
+    labelDbName: vscode.l10n.t("Database Name"),
+    labelSid: vscode.l10n.t("SID / Service Name"),
+    labelSchema: vscode.l10n.t("Schema Name"),
+    placeholderDbOptional: vscode.l10n.t("mydb (optional)"),
+    placeholderOracle: vscode.l10n.t("ORCL or pdbname"),
+    placeholderSchema: vscode.l10n.t("schema name (optional)"),
   };
 
   return `<!DOCTYPE html>
@@ -768,27 +766,26 @@ function getAddConnectionHtml(
       <option value="${DbType.DAMENG}" ${editConfig?.type === DbType.DAMENG || editConfig?.type === DbType.DM8 ? "selected" : ""}>${vscode.l10n.t("Dameng DM8")}</option>
     </select>
   </div>
+  <!-- 数据库名 / SID：仅 Oracle 显示 -->
+  <div id="dbGroup" style="display:${editConfig?.type === DbType.ORACLE ? "block" : "none"}">
+    <div class="form-group">
   <div id="tcpFields">
     <div class="row">
       <div class="form-group"><label>${vscode.l10n.t("Host")}</label><input id="connHost" value="${editConfig?.host || ""}" placeholder="127.0.0.1" /></div>
       <div class="form-group" style="max-width:120px"><label>${vscode.l10n.t("Port")}</label><input id="connPort" value="${editConfig?.port || ""}" placeholder="3306" /></div>
     </div>
+    <!-- SID / 服务名：仅 Oracle 显示 -->
+    <div id="dbGroup" style="display:${editConfig?.type === DbType.ORACLE ? "block" : "none"}">
+      <div class="form-group">
+        <label id="dbLabel">${vscode.l10n.t("SID / Service Name")}</label>
+        <input id="connDatabase" value="${editConfig?.database || ""}" placeholder="${vscode.l10n.t("ORCL or pdbname")}" autocomplete="off" />
+      </div>
+    </div>
     <div class="row">
       <div class="form-group"><label>${vscode.l10n.t("Username")}</label><input id="connUser" value="${editConfig?.user || ""}" placeholder="root" /></div>
       <div class="form-group"><label>${vscode.l10n.t("Password")}</label><input id="connPassword" type="password" value="${editConfig?.password || ""}" placeholder="password" /></div>
     </div>
-    <div class="form-group">
-      <label>${vscode.l10n.t("Database Name")}</label>
-      <div class="input-with-btn">
-        <div class="db-combo-wrapper">
-          <input id="connDatabase" value="${editConfig?.database || ""}" placeholder="${vscode.l10n.t("mydb (not needed for SQLite)")}" autocomplete="off" />
-          <span class="dropdown-arrow" id="dropdownArrow" onclick="toggleDropdown()">▼</span>
-          <div class="db-dropdown" id="dbDropdown"></div>
-        </div>
-        <button class="btn-icon" id="refreshDbBtn" onclick="refreshDatabases()" title="${vscode.l10n.t("Refresh database list")}">↻</button>
-      </div>
     </div>
-  </div>
   <div id="sqliteField" style="display:${editConfig?.type === DbType.SQLITE ? "block" : "none"}">
     <div class="form-group"><label>${vscode.l10n.t("SQLite File Path")}</label><div class="input-with-btn"><input id="connPath" value="${editConfig?.path || ""}" placeholder="/path/to/database.db" /><button class="btn-icon" onclick="browseSqlitePath()" title="${vscode.l10n.t("Browse")}">📂</button></div></div>
   </div>
