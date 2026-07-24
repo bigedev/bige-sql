@@ -766,9 +766,6 @@ function getAddConnectionHtml(
       <option value="${DbType.DAMENG}" ${editConfig?.type === DbType.DAMENG || editConfig?.type === DbType.DM8 ? "selected" : ""}>${vscode.l10n.t("Dameng DM8")}</option>
     </select>
   </div>
-  <!-- 数据库名 / SID：仅 Oracle 显示 -->
-  <div id="dbGroup" style="display:${editConfig?.type === DbType.ORACLE ? "block" : "none"}">
-    <div class="form-group">
   <div id="tcpFields">
     <div class="row">
       <div class="form-group"><label>${vscode.l10n.t("Host")}</label><input id="connHost" value="${editConfig?.host || ""}" placeholder="127.0.0.1" /></div>
