@@ -29,10 +29,20 @@ import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import type { IncomingMessage, ServerResponse } from "http";
 
+/** 将 Buffer 转为 BLOB 大小占位符 */
+function formatBuffer(val: Buffer): string {
+  const size = val.length;
+  return size > 1024
+    ? `[BLOB ${(size / 1024).toFixed(1)} KB]`
+    : `[BLOB ${size} B]`;
+}
+
 // 模块级设置：将 CLOB/NCLOB 以字符串返回，BLOB 以 Buffer 返回，
-// 避免 Lob 对象（内部含 ConnectDescription 循环引用）导致 JSON 序列化失败。
+// 避免 Lob 对象（内部含循环引用）导致 JSON 序列化失败。
 oracledb.fetchAsString = [oracledb.CLOB, oracledb.NCLOB];
 oracledb.fetchAsBuffer = [oracledb.BLOB];
+dmdb.fetchAsString = [dmdb.CLOB];
+dmdb.fetchAsBuffer = [dmdb.BLOB];
 import {
   isMySQL,
   isPostgres,
@@ -276,13 +286,24 @@ async function executeQuery(
   if (isMySQL(config.type)) {
     const pool2 = pool as mysql.Pool;
     const [rows] = await pool2.query(sql);
+    if (Array.isArray(rows)) {
+      return rows.map((r: any) => {
+        const n: any = {};
+        for (const k of Object.keys(r)) n[k] = r[k] instanceof Buffer ? formatBuffer(r[k]) : r[k];
+        return n;
+      });
+    }
     return rows;
   }
 
   if (isPostgres(config.type)) {
     const pool2 = pool as pg.Pool;
     const result = await pool2.query(sql);
-    return result.rows;
+    return result.rows.map((r: any) => {
+      const n: any = {};
+      for (const k of Object.keys(r)) n[k] = r[k] instanceof Buffer ? formatBuffer(r[k]) : r[k];
+      return n;
+    });
   }
 
   if (isSQLite(config.type)) {
@@ -294,7 +315,11 @@ async function executeQuery(
       upper.startsWith("WITH") ||
       upper.startsWith("PRAGMA")
     ) {
-      return stmt.all();
+      return stmt.all().map((r: any) => {
+        const n: any = {};
+        for (const k of Object.keys(r)) n[k] = r[k] instanceof Buffer ? formatBuffer(r[k]) : r[k];
+        return n;
+      });
     } else {
       const info = stmt.run();
       return {
@@ -308,11 +333,29 @@ async function executeQuery(
     const dmPool = pool as any;
     const conn = await dmPool.getConnection();
     try {
+      // fetchAsString/fetchAsBuffer 已在模块级设置
       const result = await conn.execute(sql, [], {
         outFormat: dmdb.OUT_FORMAT_OBJECT,
       });
       if (result.rows && result.rows.length > 0) {
-        return result.rows;
+        return result.rows.map((r: any) => {
+          const normalized: any = {};
+          for (const key of Object.keys(r)) {
+            let val = r[key];
+            // 兜底：Lob 对象安全转为字符串，Buffer 转大小占位符
+            if (typeof val === "object" && val !== null &&
+                val.constructor?.name === "Lob" && typeof val.pipe === "function") {
+              const t = val.type;
+              const typeName = typeof t === "number" && t === dmdb.CLOB ? "CLOB"
+                : typeof t === "number" && t === dmdb.BLOB ? "BLOB" : "LOB";
+              val = `[${typeName}]`;
+            } else if (Buffer.isBuffer(val)) {
+              val = formatBuffer(val);
+            }
+            normalized[key.toLowerCase()] = val;
+          }
+          return normalized;
+        });
       }
       if (result.rowsAffected !== undefined) {
         return { affectedRows: result.rowsAffected };
@@ -329,7 +372,11 @@ async function executeQuery(
     const result = await request.query(sql);
     // recordset 为 undefined 表示非查询语句，为空数组表示查询无结果
     if (result.recordset !== undefined) {
-      return result.recordset || [];
+      return result.recordset.map((r: any) => {
+        const n: any = {};
+        for (const k of Object.keys(r)) n[k] = r[k] instanceof Buffer ? formatBuffer(r[k]) : r[k];
+        return n;
+      });
     }
     if (result.rowsAffected && result.rowsAffected[0] !== undefined) {
       return { affectedRows: result.rowsAffected[0] };
@@ -350,12 +397,16 @@ async function executeQuery(
           const normalized: any = {};
           for (const key of Object.keys(r)) {
             let val = r[key];
-            // 兜底：如果仍有 Lob 对象（如 BLOB），安全转为字符串
+            // 兜底：Lob 对象安全转为字符串，Buffer 转大小占位符
             if (typeof val === "object" && val !== null &&
                 val.constructor?.name === "Lob" && typeof val.pipe === "function") {
               const t = val.type;
+              const len = val.length || 0;
+              const sizeStr = len > 1024 ? `${(len / 1024).toFixed(1)} KB` : `${len} B`;
               val = t === oracledb.CLOB || t === oracledb.NCLOB ? "[CLOB]"
-                  : t === oracledb.BLOB ? "[BLOB]" : "[LOB]";
+                  : t === oracledb.BLOB ? `[BLOB ${sizeStr}]` : "[LOB]";
+            } else if (Buffer.isBuffer(val)) {
+              val = formatBuffer(val);
             }
             normalized[key.toLowerCase()] = val;
           }
@@ -973,9 +1024,7 @@ async function listSchemas(
   if (isDameng(config.type)) {
     return executeQuery(
       pool,
-      `SELECT DISTINCT OWNER AS name FROM ALL_TABLES
-       WHERE OWNER NOT IN ('SYS','SYSDBA','SYSAUDITOR','CTISYS')
-       ORDER BY name`,
+      `SELECT USERNAME AS name FROM ALL_USERS ORDER BY USERNAME`,
       config,
     );
   }
@@ -991,13 +1040,27 @@ async function listSchemas(
   }
 
   if (isOracle(config.type)) {
-    return executeQuery(
-      pool,
-      `SELECT DISTINCT OWNER AS name FROM ALL_TABLES
-       WHERE OWNER NOT IN ('SYSTEM','OUTLN','DBSNMP','XDB','APPQOSSYS','WMSYS','EXFSYS','CTXSYS','ORDSYS','ORDDATA','MDSYS','OLAPSYS')
-       ORDER BY name`,
-      config,
-    );
+    // Oracle 12c+ 用 ORACLE_MAINTAINED 精确过滤；11g- 降级为排除列表
+    try {
+      return await executeQuery(
+        pool,
+        `SELECT USERNAME AS name FROM ALL_USERS
+         WHERE ORACLE_MAINTAINED = 'N'
+         ORDER BY USERNAME`,
+        config,
+      );
+    } catch (err: any) {
+      if (err.message?.includes?.("ORA-00904")) {
+        return await executeQuery(
+          pool,
+          `SELECT USERNAME AS name FROM ALL_USERS
+           WHERE USERNAME NOT IN ('SYS','SYSTEM','OUTLN','DBSNMP','XDB','APPQOSSYS','WMSYS','EXFSYS','CTXSYS','ORDSYS','ORDDATA','MDSYS','OLAPSYS')
+           ORDER BY USERNAME`,
+          config,
+        );
+      }
+      throw err;
+    }
   }
 
   throw new Error(`不支援的資料庫類型: ${config.type}`);

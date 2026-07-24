@@ -101,6 +101,31 @@ const CTX = {
   EMPTY: "empty",
 } as const;
 
+/**
+ * 拆分 PostgreSQL 参数字符串（仅在外层逗号处拆分，忽略括号内逗号）。
+ * pg_get_function_arguments 返回格式: "IN id integer, OUT result boolean, name text"
+ * 类型修饰符如 numeric(10,2) 内的逗号不应拆分。
+ */
+function splitArgs(argsStr: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let depth = 0;
+  for (const ch of argsStr) {
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    else if (ch === "," && depth === 0) {
+      const trimmed = current.trim();
+      if (trimmed) result.push(trimmed);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  const trimmed = current.trim();
+  if (trimmed) result.push(trimmed);
+  return result;
+}
+
 export class ConnectionTreeItem extends vscode.TreeItem {
   connectionName?: string;
   tableName?: string;
@@ -524,38 +549,35 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
         (r: any) => (r.type || "").toUpperCase() === "VIEW",
       ).length;
 
-      if (tableCount > 0) {
-        groups.push(
-          new ConnectionTreeItem(
-            `${vscode.l10n.t("Tables")}`,
-            vscode.TreeItemCollapsibleState.Collapsed,
-            CTX.TABLES_GROUP,
-            {
-              connectionName: connName,
-              schemaName,
-              dbName,
-              description: `${tableCount}`,
-              iconPath: new vscode.ThemeIcon("symbol-structure"),
-            },
-          ),
-        );
-      }
-      if (viewCount > 0) {
-        groups.push(
-          new ConnectionTreeItem(
-            `${vscode.l10n.t("Views")}`,
-            vscode.TreeItemCollapsibleState.Collapsed,
-            CTX.VIEWS_GROUP,
-            {
-              connectionName: connName,
-              schemaName,
-              dbName,
-              description: `${viewCount}`,
-              iconPath: new vscode.ThemeIcon("preview"),
-            },
-          ),
-        );
-      }
+      // 数量为 0 也显示且可展开（展开后显示空），避免"打不开"的错觉
+      groups.push(
+        new ConnectionTreeItem(
+          `${vscode.l10n.t("Tables")}`,
+          vscode.TreeItemCollapsibleState.Collapsed,
+          CTX.TABLES_GROUP,
+          {
+            connectionName: connName,
+            schemaName,
+            dbName,
+            description: `${tableCount}`,
+            iconPath: new vscode.ThemeIcon("symbol-structure"),
+          },
+        ),
+      );
+      groups.push(
+        new ConnectionTreeItem(
+          `${vscode.l10n.t("Views")}`,
+          vscode.TreeItemCollapsibleState.Collapsed,
+          CTX.VIEWS_GROUP,
+          {
+            connectionName: connName,
+            schemaName,
+            dbName,
+            description: `${viewCount}`,
+            iconPath: new vscode.ThemeIcon("preview"),
+          },
+        ),
+      );
     } catch {
       // 忽略表格查询错误
     }
@@ -568,22 +590,20 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
       );
       const procRows = (procs.rows || []).filter((p: any) => p.name != null);
       const procCount = procRows.length;
-      if (procCount > 0) {
-        groups.push(
-          new ConnectionTreeItem(
-            `${vscode.l10n.t("Procedures")}`,
-            vscode.TreeItemCollapsibleState.Collapsed,
-            CTX.PROCS_GROUP,
-            {
-              connectionName: connName,
-              schemaName,
-              dbName,
-              description: `${procCount}`,
-              iconPath: new vscode.ThemeIcon("symbol-ruler"),
-            },
-          ),
-        );
-      }
+      groups.push(
+        new ConnectionTreeItem(
+          `${vscode.l10n.t("Procedures")}`,
+          vscode.TreeItemCollapsibleState.Collapsed,
+          CTX.PROCS_GROUP,
+          {
+            connectionName: connName,
+            schemaName,
+            dbName,
+            description: `${procCount}`,
+            iconPath: new vscode.ThemeIcon("symbol-ruler"),
+          },
+        ),
+      );
     } catch {
       // 忽略存储过程查询错误
     }
@@ -950,8 +970,12 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
           dbName,
         );
         const rows = result.rows || [];
-        // PG 返回 arguments 字符串作为单行，算 1 个参数节点
-        paramCount = rows.length > 0 && rows[0].arguments ? 1 : rows.length;
+        if (rows.length > 0 && rows[0].arguments) {
+          // PG: pg_get_function_arguments 返回逗号分隔的参数字符串
+          paramCount = splitArgs(rows[0].arguments).length;
+        } else {
+          paramCount = rows.length;
+        }
       } catch {}
     }
     return [
@@ -1339,7 +1363,8 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
       const items = rows.flatMap((row: any) => {
         // PG 返回 arguments 字符串，格式: [mode] [name] type (例: "IN id integer, OUT result boolean")
         if (row.arguments) {
-          const args = row.arguments.split(",").map((a: string) => a.trim());
+          // 仅在括号外拆分逗号，避免 numeric(10,2) 被误分割
+          const args = splitArgs(row.arguments);
           if (args.length === 1 && args[0] === "") return [];
           return args.map((arg: string) => {
             const parts = arg.split(/\s+/);

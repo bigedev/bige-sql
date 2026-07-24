@@ -18,11 +18,13 @@ import {
   isOracle,
 } from "./dbTypes";
 
-// 设置 oracledb 全局选项：将 CLOB/NCLOB 以字符串返回，BLOB 以 Buffer 返回，
-// 避免 Lob 对象（内部含 ConnectDescription 循环引用）导致 JSON 序列化失败。
+// 设置模块级选项：将 CLOB/NCLOB 以字符串返回，BLOB 以 Buffer 返回，
+// 避免 Lob 对象（内部含循环引用）导致 JSON 序列化失败。
 // 注意：这些是模块级设置，不能作为 execute() 的选项传入。
 oracledb.fetchAsString = [oracledb.CLOB, oracledb.NCLOB];
 oracledb.fetchAsBuffer = [oracledb.BLOB];
+dmdb.fetchAsString = [dmdb.CLOB];
+dmdb.fetchAsBuffer = [dmdb.BLOB];
 
 interface QueryResult {
   rows: any[];
@@ -60,20 +62,29 @@ function safeValue(val: any, seen?: WeakSet<object>): any {
   // Date → ISO 字符串
   if (val instanceof Date) return val.toISOString();
 
-  // Buffer/Uint8Array → base64 字符串（BLOB 等二进制数据）
+  // Buffer/Uint8Array → 占位符（BLOB 等二进制数据，base64 无实际意义）
   if (Buffer.isBuffer(val) || val instanceof Uint8Array) {
-    return Buffer.from(val).toString("base64");
+    const size = val.length;
+    return size > 1024
+      ? `[BLOB ${(size / 1024).toFixed(1)} KB]`
+      : `[BLOB ${size} B]`;
   }
 
-  // oracledb Lob 对象检测：
-  //   Lob.type 是 DbType 对象（而非数字），用 === 与 oracledb.CLOB/NCLOB/BLOB 比较
+  // Lob 对象检测（oracledb / dmdb 均适用）：
+  //   构造函数名均为 "Lob"，继承 Duplex（有 pipe 方法）。
+  //   oracledb.Lob.type 是 DbType 对象；dmdb.Lob.type 是数字。
   if (typeof val === "object" && val.constructor?.name === "Lob" && typeof val.pipe === "function") {
-    // 使用 oracledb 的 DbType 常量比较
     const t = val.type;
-    const typeName =
-      t === oracledb.CLOB || t === oracledb.NCLOB ? "CLOB"
-      : t === oracledb.BLOB ? "BLOB"
-      : `LOB`;
+    let typeName = "LOB";
+    if (typeof t === "object") {
+      // oracledb: DbType 对象
+      if (t === oracledb.CLOB || t === oracledb.NCLOB) typeName = "CLOB";
+      else if (t === oracledb.BLOB) typeName = "BLOB";
+    } else if (typeof t === "number") {
+      // dmdb: 数字常量
+      if (t === dmdb.CLOB) typeName = "CLOB";
+      else if (t === dmdb.BLOB) typeName = "BLOB";
+    }
     return `[${typeName}]`;
   }
 
@@ -108,6 +119,19 @@ function safeValue(val: any, seen?: WeakSet<object>): any {
 
   // 函数、Symbol 等
   return String(val);
+}
+
+/**
+ * 对查询结果行数组做安全处理：每个字段值经过 safeValue 转换
+ */
+function safeRows(rows: any[]): any[] {
+  return rows.map((r: any) => {
+    const normalized: any = {};
+    for (const key of Object.keys(r)) {
+      normalized[key] = safeValue(r[key]);
+    }
+    return normalized;
+  });
 }
 
 export class DatabaseService {
@@ -399,7 +423,7 @@ export class DatabaseService {
 
     if (isMySQL(config.type)) {
       const [rows] = await pool.query(sql);
-      return { rows, isSelect };
+      return { rows: safeRows(rows), isSelect };
     }
 
     if (isPostgres(config.type)) {
@@ -407,12 +431,12 @@ export class DatabaseService {
         await pool.query(`SET search_path TO "${schemaName.replace(/"/g, '""')}"`);
       }
       const result = await pool.query(sql);
-      return { rows: result.rows, isSelect, fields: result.fields };
+      return { rows: safeRows(result.rows || []), isSelect, fields: result.fields };
     }
 
     if (isSQLite(config.type)) {
       const stmt = pool.prepare(sql);
-      if (isSelect) return { rows: stmt.all(), isSelect };
+      if (isSelect) return { rows: safeRows(stmt.all()), isSelect };
       const info = stmt.run();
       return {
         rows: [
@@ -436,7 +460,7 @@ export class DatabaseService {
           outFormat: dmdb.OUT_FORMAT_OBJECT,
         });
         if (result.rows?.length > 0) {
-          // 归一化列名为小写（达梦返回的列名可能为大写）
+          // 归一化列名为小写（达梦返回的列名可能为大写）+ 安全处理
           const rows = result.rows.map((r: any) => {
             const normalized: any = {};
             for (const key of Object.keys(r)) {
@@ -463,7 +487,7 @@ export class DatabaseService {
       const result = await request.query(sql);
       // recordset 为 undefined 表示非查询语句（INSERT/UPDATE/DELETE），为空数组表示查询无结果
       if (result.recordset !== undefined)
-        return { rows: result.recordset || [], isSelect: true };
+        return { rows: safeRows(result.recordset || []), isSelect: true };
       if (result.rowsAffected?.[0] !== undefined)
         return {
           rows: [{ affectedRows: result.rowsAffected[0] }],
@@ -699,13 +723,9 @@ export class DatabaseService {
     if (isDameng(config.type)) {
       return this.execQuery(
         pool,
-        `SELECT DISTINCT OWNER AS name FROM ALL_TABLES
-        WHERE OWNER NOT IN ('SYS','SYSDBA','SYSAUDITOR','CTISYS')
-        ORDER BY name`,
+        `SELECT USERNAME AS name FROM ALL_USERS ORDER BY USERNAME`,
         config,
       );
-    }
-    if (isSqlServer(config.type)) {
       return this.execQuery(
         pool,
         `SELECT name FROM sys.schemas ORDER BY name`,
@@ -713,13 +733,29 @@ export class DatabaseService {
       );
     }
     if (isOracle(config.type)) {
-      return this.execQuery(
-        pool,
-        `SELECT DISTINCT OWNER AS name FROM ALL_TABLES
-        WHERE OWNER NOT IN ('SYSTEM','OUTLN','DBSNMP','XDB','APPQOSSYS','WMSYS','EXFSYS','CTXSYS','ORDSYS','ORDDATA','MDSYS','OLAPSYS')
-        ORDER BY name`,
-        config,
-      );
+      // Oracle 12c+ 用 ORACLE_MAINTAINED 精确过滤系统用户；
+      // 11g 及更早版本没有此列，降级为静态排除列表。
+      try {
+        return await this.execQuery(
+          pool,
+          `SELECT USERNAME AS name FROM ALL_USERS
+          WHERE ORACLE_MAINTAINED = 'N'
+          ORDER BY USERNAME`,
+          config,
+        );
+      } catch (err: any) {
+        if (err.message?.includes?.("ORA-00904")) {
+          // ORA-00904 = 列名无效，说明是 11g 以下，改用排除列表
+          return await this.execQuery(
+            pool,
+            `SELECT USERNAME AS name FROM ALL_USERS
+            WHERE USERNAME NOT IN ('SYS','SYSTEM','OUTLN','DBSNMP','XDB','APPQOSSYS','WMSYS','EXFSYS','CTXSYS','ORDSYS','ORDDATA','MDSYS','OLAPSYS')
+            ORDER BY USERNAME`,
+            config,
+          );
+        }
+        throw err;
+      }
     }
     return { rows: [], isSelect: true };
   }
