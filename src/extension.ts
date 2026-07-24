@@ -131,6 +131,17 @@ export function activate(context: vscode.ExtensionContext) {
     mcpServerPort = configuredPort;
   }
 
+  // ── 自动注册 MCP Server (VS Code 原生 MCP API) ──
+  try {
+    const mcpProvider = new BigeSqlMcpServerProvider(context);
+    context.subscriptions.push(
+      vscode.lm.registerMcpServerDefinitionProvider("bige-sql", mcpProvider),
+    );
+    console.log("✅ MCP Server 已通过 VS Code MCP API 注册");
+  } catch (err: any) {
+    console.error("❌ MCP Server 注册失败:", err.message);
+  }
+
   // ── 自动启动 MCP Server ──
   const autoStart = vscode.workspace
     .getConfiguration("bigeSql.mcpServer")
@@ -145,6 +156,48 @@ export function activate(context: vscode.ExtensionContext) {
     setTimeout(() => {
       startMcpServer();
     }, 1500);
+  }
+}
+
+/**
+ * BigeSQL MCP Server Provider - 使用 VS Code 原生 MCP API 注册
+ * 让 Copilot/CodeBuddy 能自动发现并调用数据库工具
+ */
+class BigeSqlMcpServerProvider implements vscode.McpServerDefinitionProvider {
+  private serverPath: string;
+
+  constructor(context: vscode.ExtensionContext) {
+    this.serverPath = vscode.Uri.joinPath(
+      context.extensionUri,
+      "out",
+      "src",
+      "server.js",
+    ).fsPath;
+  }
+
+  provideMcpServerDefinitions(
+    _token: vscode.CancellationToken,
+  ): vscode.ProviderResult<vscode.McpServerDefinition[]> {
+    return [
+      new vscode.McpStdioServerDefinition(
+        "BigeSQL",
+        "node",
+        [this.serverPath],
+        undefined,
+        "0.2.0",
+      ),
+    ];
+  }
+
+  resolveMcpServerDefinition(
+    server: vscode.McpServerDefinition,
+    _token: vscode.CancellationToken,
+  ): vscode.ProviderResult<vscode.McpServerDefinition> {
+    // 使用 VS Code 的 Node.js 路径，确保兼容性
+    if (server instanceof vscode.McpStdioServerDefinition) {
+      server.command = process.execPath;
+    }
+    return server;
   }
 }
 
