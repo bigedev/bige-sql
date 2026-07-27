@@ -5,7 +5,7 @@
  *
  * 使用方式:
  *   node out/src/server.js              # stdio 模式（默认）
- *   node out/src/server.js --http       # stdio + HTTP 模式（默认端口 3100）
+ *   node out/src/server.js --http       # stdio + HTTP 模式（默认端口 5237）
  *   node out/src/server.js --http --port 8080  # 指定 HTTP 端口
  *   node out/src/server.js --http-only  # 仅 HTTP 模式
  *
@@ -289,7 +289,8 @@ async function executeQuery(
     if (Array.isArray(rows)) {
       return rows.map((r: any) => {
         const n: any = {};
-        for (const k of Object.keys(r)) n[k] = r[k] instanceof Buffer ? formatBuffer(r[k]) : r[k];
+        for (const k of Object.keys(r))
+          n[k] = r[k] instanceof Buffer ? formatBuffer(r[k]) : r[k];
         return n;
       });
     }
@@ -301,7 +302,8 @@ async function executeQuery(
     const result = await pool2.query(sql);
     return result.rows.map((r: any) => {
       const n: any = {};
-      for (const k of Object.keys(r)) n[k] = r[k] instanceof Buffer ? formatBuffer(r[k]) : r[k];
+      for (const k of Object.keys(r))
+        n[k] = r[k] instanceof Buffer ? formatBuffer(r[k]) : r[k];
       return n;
     });
   }
@@ -317,7 +319,8 @@ async function executeQuery(
     ) {
       return stmt.all().map((r: any) => {
         const n: any = {};
-        for (const k of Object.keys(r)) n[k] = r[k] instanceof Buffer ? formatBuffer(r[k]) : r[k];
+        for (const k of Object.keys(r))
+          n[k] = r[k] instanceof Buffer ? formatBuffer(r[k]) : r[k];
         return n;
       });
     } else {
@@ -343,11 +346,19 @@ async function executeQuery(
           for (const key of Object.keys(r)) {
             let val = r[key];
             // 兜底：Lob 对象安全转为字符串，Buffer 转大小占位符
-            if (typeof val === "object" && val !== null &&
-                val.constructor?.name === "Lob" && typeof val.pipe === "function") {
+            if (
+              typeof val === "object" &&
+              val !== null &&
+              val.constructor?.name === "Lob" &&
+              typeof val.pipe === "function"
+            ) {
               const t = val.type;
-              const typeName = typeof t === "number" && t === dmdb.CLOB ? "CLOB"
-                : typeof t === "number" && t === dmdb.BLOB ? "BLOB" : "LOB";
+              const typeName =
+                typeof t === "number" && t === dmdb.CLOB
+                  ? "CLOB"
+                  : typeof t === "number" && t === dmdb.BLOB
+                    ? "BLOB"
+                    : "LOB";
               val = `[${typeName}]`;
             } else if (Buffer.isBuffer(val)) {
               val = formatBuffer(val);
@@ -374,7 +385,8 @@ async function executeQuery(
     if (result.recordset !== undefined) {
       return result.recordset.map((r: any) => {
         const n: any = {};
-        for (const k of Object.keys(r)) n[k] = r[k] instanceof Buffer ? formatBuffer(r[k]) : r[k];
+        for (const k of Object.keys(r))
+          n[k] = r[k] instanceof Buffer ? formatBuffer(r[k]) : r[k];
         return n;
       });
     }
@@ -398,13 +410,22 @@ async function executeQuery(
           for (const key of Object.keys(r)) {
             let val = r[key];
             // 兜底：Lob 对象安全转为字符串，Buffer 转大小占位符
-            if (typeof val === "object" && val !== null &&
-                val.constructor?.name === "Lob" && typeof val.pipe === "function") {
+            if (
+              typeof val === "object" &&
+              val !== null &&
+              val.constructor?.name === "Lob" &&
+              typeof val.pipe === "function"
+            ) {
               const t = val.type;
               const len = val.length || 0;
-              const sizeStr = len > 1024 ? `${(len / 1024).toFixed(1)} KB` : `${len} B`;
-              val = t === oracledb.CLOB || t === oracledb.NCLOB ? "[CLOB]"
-                  : t === oracledb.BLOB ? `[BLOB ${sizeStr}]` : "[LOB]";
+              const sizeStr =
+                len > 1024 ? `${(len / 1024).toFixed(1)} KB` : `${len} B`;
+              val =
+                t === oracledb.CLOB || t === oracledb.NCLOB
+                  ? "[CLOB]"
+                  : t === oracledb.BLOB
+                    ? `[BLOB ${sizeStr}]`
+                    : "[LOB]";
             } else if (Buffer.isBuffer(val)) {
               val = formatBuffer(val);
             }

@@ -1,6 +1,6 @@
 # BigeSQL — 开源多数据库管理工具 & MCP Server
 
-一站式数据库管理工具 + AI MCP Server，支持 **MySQL/MariaDB、PostgreSQL、SQLite、达梦 DM8**。
+一站式数据库管理工具 + AI MCP Server，支持 **MySQL/MariaDB、PostgreSQL、SQLite、达梦 DM8、SQL Server、Oracle**。
 
 既是 **VS Code 插件**（图形化界面），也是 **MCP Server**（AI 助手可通过协议直接访问数据库），支持 stdio 和 HTTP 双模式。
 
@@ -8,25 +8,27 @@
 
 ## ✨ 功能特性
 
-| 特性                | 说明                                             |
-| ------------------- | ------------------------------------------------ |
-| 🗄️ **多数据库支持** | MySQL / MariaDB / PostgreSQL / SQLite / 达梦 DM8 |
-| 🎨 **图形界面**     | VS Code 侧边栏管理连接，Webview SQL 编辑器       |
-| 🤖 **MCP 协议**     | 支持 stdio + HTTP 双模式                         |
-| 🔌 **连接管理**     | 添加/编辑/删除/测试数据库连接                    |
-| 📋 **表浏览器**     | 树形展示表、视图、列结构                         |
-| ⌨️ **SQL 编辑器**   | 语法高亮、执行查询、结果表格展示                 |
-| 🚦 **服务管理**     | 扩展内一键启动/停止 MCP Server，状态栏指示       |
-| 🔒 **安全**         | 密码不硬编码，支持 `.gitignore` 排除             |
+| 特性                | 说明                                                                   |
+| ------------------- | ---------------------------------------------------------------------- |
+| 🗄️ **多数据库支持** | MySQL / MariaDB / PostgreSQL / SQLite / 达梦 DM8 / SQL Server / Oracle |
+| 🎨 **图形界面**     | VS Code 侧边栏管理连接，Webview SQL 编辑器                             |
+| 🤖 **MCP 协议**     | 支持 stdio + HTTP 双模式                                               |
+| 🔌 **连接管理**     | 添加/编辑/删除/测试数据库连接                                          |
+| 📋 **表浏览器**     | 树形展示表、视图、列结构                                               |
+| ⌨️ **SQL 编辑器**   | 语法高亮、执行查询、结果表格展示                                       |
+| 🚦 **服务管理**     | 扩展内一键启动/停止 MCP Server，状态栏指示                             |
+| 🔒 **安全**         | 密码不硬编码，支持 `.gitignore` 排除                                   |
 
 ## 支持的数据库
 
-| 数据库              | 驱动               | 方式                |
-| ------------------- | ------------------ | ------------------- |
-| **MySQL / MariaDB** | `mysql2`           | TCP 直连            |
-| **PostgreSQL**      | `pg`               | TCP 直连            |
-| **SQLite**          | `better-sqlite3`   | 本地文件            |
-| **达梦 DM8**        | `dmdb`（官方驱动） | TCP 直连，无需 ODBC |
+| 数据库              | 驱动                   | 方式                  |
+| ------------------- | ---------------------- | --------------------- |
+| **MySQL / MariaDB** | `mysql2`               | TCP 直连              |
+| **PostgreSQL**      | `pg`                   | TCP 直连              |
+| **SQLite**          | `better-sqlite3`       | 本地文件              |
+| **达梦 DM8**        | `dmdb`（官方驱动）     | TCP 直连，无需 ODBC   |
+| **SQL Server**      | `mssql` + `tedious`    | TCP 直连              |
+| **Oracle**          | `oracledb`（官方驱动） | TCP 直连（Thin 模式） |
 
 ---
 
@@ -106,6 +108,22 @@ npm run package:no-compile
       "port": 5236,
       "user": "SYSDBA",
       "password": "SYSDBA"
+    },
+    "my-sqlserver": {
+      "type": "sqlserver",
+      "host": "192.168.1.50",
+      "port": 1433,
+      "user": "sa",
+      "password": "your_password",
+      "database": "mydb"
+    },
+    "my-oracle": {
+      "type": "oracle",
+      "host": "192.168.1.60",
+      "port": 1521,
+      "user": "system",
+      "password": "your_password",
+      "database": "ORCLCDB"
     }
   }
 }
@@ -136,16 +154,17 @@ npm run package:no-compile
 
 ### 命令列表
 
-| 命令                           | 说明               |
-| ------------------------------ | ------------------ |
-| `BigeSQL: 添加数据库连接`      | 打开添加连接表单   |
-| `BigeSQL: 打开 SQL 查询编辑器` | 打开 SQL 编辑器    |
-| `BigeSQL: 刷新连接列表`        | 从文件重新加载连接 |
-| `BigeSQL: 测试连接`            | 测试连接是否正常   |
-| `BigeSQL: 编辑连接`            | 修改连接配置       |
-| `BigeSQL: 删除连接`            | 删除数据库连接     |
-| `BigeSQL: Start MCP Server`    | 启动 MCP 服务      |
-| `BigeSQL: Stop MCP Server`     | 停止 MCP 服务      |
+| 命令                           | 说明                |
+| ------------------------------ | ------------------- | --- | ------------------------------ | ------------------------- |
+| `BigeSQL: 添加数据库连接`      | 打开添加连接表单    |
+| `BigeSQL: 打开 SQL 查询编辑器` | 打开 SQL 编辑器     |
+| `BigeSQL: 刷新连接列表`        | 从文件重新加载连接  |
+| `BigeSQL: 测试连接`            | 测试连接是否正常    |
+| `BigeSQL: 编辑连接`            | 修改连接配置        |
+| `BigeSQL: 删除连接`            | 删除数据库连接      |
+| `BigeSQL: Start MCP Server`    | 启动 MCP 服务       |
+| `BigeSQL: Stop MCP Server`     | 停止 MCP 服务       |     | `BigeSQL: 复制 MCP 服务器地址` | 复制 MCP 服务地址到剪贴板 |
+| `BigeSQL: 配置 MCP 服务器端口` | 设置 MCP 服务端口号 |
 
 ---
 
@@ -204,7 +223,7 @@ HTTP 端点：`http://127.0.0.1:5237/mcp`
 | -------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------- |
 | `list-connections`         | —                                                                           | 列出所有已配置的连接                                 |
 | `test-connection`          | `connection` (可选)                                                         | 测试数据库连接                                       |
-| `list-databases`           | `connection` (可选)                                                         | 列出所有数据库（MySQL/PG）                           |
+| `list-databases`           | `connection` (可选)                                                         | 列出所有数据库（MySQL/PG/SQL Server）                |
 | `list-schemas`             | `connection` (可选)                                                         | 列出 schema（PG）/ 数据库列表（MySQL）/ 用户（达梦） |
 | `list-tables`              | `connection` (可选), `database` (可选), `schema` (可选)                     | 列出所有表和视图                                     |
 | `list-views`               | `connection` (可选)                                                         | 列出视图及其定义                                     |
@@ -248,7 +267,7 @@ bige-sql/
 │   ├── mcpServerProvider.ts        # MCP 服务提供者（状态栏管理、生命周期）
 │   ├── dbTypes.ts                  # 数据库类型常量与工具函数
 │   ├── connectionManager.ts        # 连接配置读写管理
-│   ├── databaseService.ts          # 数据库查询引擎（MySQL/PG/SQLite/达梦）
+│   ├── databaseService.ts          # 数据库查询引擎（MySQL/PG/SQLite/达梦/SQL Server/Oracle）
 │   ├── connectionTreeProvider.ts   # 侧边栏连接树视图
 │   └── queryEditorProvider.ts      # SQL 编辑器 Webview 提供者
 ├── l10n/
