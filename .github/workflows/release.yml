@@ -1,0 +1,53 @@
+name: Release VSIX
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Package VSIX
+        run: npx vsce package
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          body: |
+            ## BigeSQL ${{ github.ref_name }}
+
+            BigeSQL 是一个 VS Code 扩展，提供数据库连接管理、SQL 查询编辑器，并可作为 MCP Server 让 AI 助手直接操作数据库。
+
+            ### 支持的数据库
+            - MySQL / MariaDB · PostgreSQL · SQLite · SQL Server · Oracle · 达梦 DM8
+
+            ### 安装方式
+
+            **VS Code 面板安装**
+            1. 下载下方 `bige-sql-*.vsix` 文件
+            2. `Ctrl+Shift+X` 打开扩展面板 → `...` → `从 VSIX 安装...`
+
+            **命令行安装**
+            ```bash
+            code --install-extension bige-sql-*.vsix
+            ```
+          files: |
+            *.vsix
