@@ -1,0 +1,38 @@
+# 排除源码和构建文件
+.gitignore
+.git/**
+src/**
+tsconfig.json
+compile.sh
+build.mjs
+test-mcp-http.mjs
+connections.example.json
+**/*.map
+**/tsconfig*.json
+yarn.lock
+package-lock.json
+
+# node_modules - 排除开发依赖，保留所有运行时依赖
+node_modules/.package-lock.json
+node_modules/package-lock.json
+node_modules/**/*.d.ts
+node_modules/**/tsconfig.json
+node_modules/@types/**
+node_modules/typescript/**
+node_modules/@typescript/**
+node_modules/prettier/**
+node_modules/eslint/**
+node_modules/@eslint/**
+node_modules/esbuild/**
+node_modules/@esbuild/**
+node_modules/vsce/**
+node_modules/@electron/
+
+# 体积优化：排除非运行时必需的包内容
+# @azure/msal-browser 是浏览器端代码，Node.js 环境不需要
+node_modules/@azure/msal-browser/**
+# better-sqlite3 排除 SQLite 源码和跨平台预编译二进制
+node_modules/better-sqlite3/deps/**
+node_modules/better-sqlite3/bin/**
+# oracledb thick 模式插件（Node.js 环境不需要）
+node_modules/oracledb/plugins/**

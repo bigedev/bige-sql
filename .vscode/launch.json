@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}", "--locale=en"],
+      "outFiles": ["${workspaceFolder}/out/**/*.js"],
+      "preLaunchTask": "npm: compile"
+    },
+    {
+      "name": "Run MCP Server",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/out/src/server.js",
+      "console": "integratedTerminal",
+      "preLaunchTask": "npm: compile",
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ]
+}
