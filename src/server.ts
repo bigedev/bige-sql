@@ -1788,7 +1788,9 @@ function createMcpServer(): McpServer {
       const { pool, config: cfg } = await getConnection(connName);
       const result = await executeQuery(pool, args.sql, cfg);
       const header = `📌 连接: ${connName} (${cfg.type})\n`;
-      return { content: [{ type: "text", text: header + formatResult(result) }] };
+      return {
+        content: [{ type: "text", text: header + formatResult(result) }],
+      };
     },
   );
 
