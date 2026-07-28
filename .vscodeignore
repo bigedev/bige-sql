@@ -6,6 +6,7 @@ tsconfig.json
 compile.sh
 build.mjs
 test-mcp-http.mjs
+connections.json
 connections.example.json
 **/*.map
 **/tsconfig*.json
