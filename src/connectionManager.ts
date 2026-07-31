@@ -37,7 +37,34 @@ export class ConnectionManager {
       .getConfiguration("bigeSql")
       .get<string>("connectionsFilePath");
     if (customPath) return customPath;
-    return path.join(this.context.extensionPath, "connections.json");
+
+    // 默认存到 VS Code 全局存储目录，升级/重装扩展时不会丢失配置
+    const globalDir = this.context.globalStorageUri.fsPath;
+    const newPath = path.join(globalDir, "connections.json");
+
+    // 迁移旧配置：早期版本把 connections.json 放在扩展安装目录，
+    // 升级时该目录被整体替换会导致配置"丢失"。若全局位置不存在而旧位置存在，
+    // 则迁移过去（对仍保留旧目录的场景有效，如开发模式或未清理的旧版本）。
+    const legacyPath = path.join(
+      this.context.extensionPath,
+      "connections.json",
+    );
+    if (!fs.existsSync(newPath) && fs.existsSync(legacyPath)) {
+      try {
+        fs.mkdirSync(globalDir, { recursive: true });
+        fs.copyFileSync(legacyPath, newPath);
+        console.log("[BigeSQL] 已迁移 connections.json 到全局存储:", newPath);
+      } catch (err: any) {
+        console.error("迁移 connections.json 失败:", err.message);
+      }
+    }
+
+    return newPath;
+  }
+
+  /** 当前 connections.json 实际路径（供 MCP Server 子进程共享） */
+  getConnectionsPath(): string {
+    return this.connectionsPath;
   }
 
   private load(): void {

@@ -599,6 +599,11 @@ async function startMcpServer() {
     [serverPath, "--http", "--port", String(mcpServerPort)],
     {
       stdio: ["pipe", "pipe", "pipe"],
+      // 把 connections.json 实际路径传给 MCP Server 子进程（全局存储目录）
+      env: {
+        ...process.env,
+        BIGE_SQL_CONFIG_PATH: connectionManager.getConnectionsPath(),
+      },
     },
   );
 

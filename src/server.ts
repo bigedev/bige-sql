@@ -86,7 +86,11 @@ type AnyPool =
 
 // ─── 连接配置管理 ────────────────────────────────────────────────
 
-const CONFIG_PATH = join(__dirname, "..", "..", "connections.json");
+// 配置路径：优先使用扩展宿主传入的环境变量（指向全局存储目录，升级不丢失），
+// 否则回退到旧路径（扩展安装目录，兼容直接运行 server.js 的场景）
+const CONFIG_PATH =
+  process.env.BIGE_SQL_CONFIG_PATH ||
+  join(__dirname, "..", "..", "connections.json");
 
 function loadConnections(): Record<string, DbConnectionConfig> {
   if (!existsSync(CONFIG_PATH)) {
