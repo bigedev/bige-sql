@@ -1,7 +1,7 @@
 {
   "name": "bige-sql",
   "displayName": "%extension.name%",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "%extension.description%",
   "main": "./out/src/extension.js",
   "l10n": "./l10n",
@@ -80,6 +80,18 @@
         "category": "BigeSQL"
       },
       {
+        "command": "bigeSql.filterConnections",
+        "title": "%cmd.filterConnections%",
+        "icon": "$(filter)",
+        "category": "BigeSQL"
+      },
+      {
+        "command": "bigeSql.clearFilter",
+        "title": "%cmd.clearFilter%",
+        "icon": "$(close)",
+        "category": "BigeSQL"
+      },
+      {
         "command": "bigeSql.openQueryEditor",
         "title": "%cmd.openQueryEditor%",
         "icon": "$(new-file)",
@@ -131,6 +143,16 @@
         {
           "command": "bigeSql.addConnection",
           "when": "view == bigeSql.connections",
+          "group": "navigation"
+        },
+        {
+          "command": "bigeSql.filterConnections",
+          "when": "view == bigeSql.connections",
+          "group": "navigation"
+        },
+        {
+          "command": "bigeSql.clearFilter",
+          "when": "view == bigeSql.connections && bigeSql.filterActive",
           "group": "navigation"
         },
         {

@@ -151,6 +151,23 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
   >();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
   private cache = new Map<string, ConnectionTreeItem[]>();
+  private _filterText = "";
+
+  /** 当前实体名称过滤词（空串表示未过滤） */
+  get filterText(): string {
+    return this._filterText;
+  }
+
+  /** 设置实体名称过滤词（空串表示清除），并刷新树视图 */
+  setFilter(text: string): void {
+    this._filterText = text.trim();
+    vscode.commands.executeCommand(
+      "setContext",
+      "bigeSql.filterActive",
+      this._filterText.length > 0,
+    );
+    this.refresh();
+  }
 
   constructor(
     private context: vscode.ExtensionContext,
@@ -193,7 +210,11 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
         // Oracle/Dameng 的 user 就是 schema，跳过重复的 schema 层直接显示对象分组
         const userCfg = this.connectionManager.getConnectionRaw(conn);
         if (isOracle(userCfg?.type) || isDameng(userCfg?.type)) {
-          return this.getObjectGroupItems(conn, element.schemaName, element.dbName);
+          return this.getObjectGroupItems(
+            conn,
+            element.schemaName,
+            element.dbName,
+          );
         }
         return this.getSchemaItems(conn, element.schemaName);
       }
@@ -297,7 +318,12 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
           element.dbName,
         );
       case CTX.PARAMS_GROUP:
-        return this.getParamItems(conn, element.schemaName, element.procName!, element.dbName);
+        return this.getParamItems(
+          conn,
+          element.schemaName,
+          element.procName!,
+          element.dbName,
+        );
 
       default:
         return [];
@@ -496,7 +522,7 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
           {
             connectionName: connName,
             schemaName: name,
-            dbName: isOracleType ? undefined : (isMySQLType ? name : userName),
+            dbName: isOracleType ? undefined : isMySQLType ? name : userName,
             description: desc,
             tooltip: tip,
             iconPath: new vscode.ThemeIcon("repo"),
@@ -632,23 +658,24 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
         const items = (result.rows || [])
           .filter((p: any) => p.name != null)
           .map((p: any) => {
-          const n = p.name || "";
-          return new ConnectionTreeItem(
-            `${n}`,
-            vscode.TreeItemCollapsibleState.Collapsed,
-            CTX.PROCEDURE,
-            {
-              connectionName: connName,
-              schemaName,
-              procName: n,
-              dbName,
-              description: p.type || "",
-              iconPath: new vscode.ThemeIcon("symbol-ruler"),
-            },
-          );
-        });
-        this.cache.set(key, items);
-        return items;
+            const n = p.name || "";
+            return new ConnectionTreeItem(
+              `${n}`,
+              vscode.TreeItemCollapsibleState.Collapsed,
+              CTX.PROCEDURE,
+              {
+                connectionName: connName,
+                schemaName,
+                procName: n,
+                dbName,
+                description: p.type || "",
+                iconPath: new vscode.ThemeIcon("symbol-ruler"),
+              },
+            );
+          });
+        const finalItems = this.filterByName(items);
+        this.cache.set(key, finalItems);
+        return finalItems;
       }
 
       const result = await this.databaseService.listTables(
@@ -669,7 +696,9 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
           : allRows;
       const filtered = schemaRows
         .filter((r: any) => r.name != null) // 过滤空名称
-        .filter((r: any) => ((r.type || "").toUpperCase() === "VIEW") === isView);
+        .filter(
+          (r: any) => ((r.type || "").toUpperCase() === "VIEW") === isView,
+        );
       const items = filtered.map((t: any) => {
         return new ConnectionTreeItem(
           `${t.name}`,
@@ -704,8 +733,9 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
           },
         );
       });
-      this.cache.set(key, items);
-      return items;
+      const finalItems = this.filterByName(items);
+      this.cache.set(key, finalItems);
+      return finalItems;
     } catch (err: any) {
       return [
         new ConnectionTreeItem(
@@ -1317,7 +1347,7 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
         );
       }
       this.cache.set(key, items);
-      return items;
+      return this.filterByName(items);
     } catch (err: any) {
       return [
         new ConnectionTreeItem(
@@ -1396,24 +1426,58 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
           }
           return "";
         };
-        let paramName = getVal(["name", "paramName", "paramname", "PARAMETER_NAME", "parametername", "ARGUMENT_NAME"]);
+        let paramName = getVal([
+          "name",
+          "paramName",
+          "paramname",
+          "PARAMETER_NAME",
+          "parametername",
+          "ARGUMENT_NAME",
+        ]);
         // SQL Server 参数名带 @ 前缀，去掉
         if (paramName.startsWith("@")) paramName = paramName.slice(1);
-        const paramMode = getVal(["paramMode", "parammode", "PARAMETER_MODE", "parametermode", "IN_OUT"]);
+        const paramMode = getVal([
+          "paramMode",
+          "parammode",
+          "PARAMETER_MODE",
+          "parametermode",
+          "IN_OUT",
+        ]);
         // is_output 列（0/1）
         const isOut = getVal(["is_output", "isOutput", "isoutput"]);
         const mode = paramMode || (isOut === "1" || isOut === 1 ? "OUT" : "IN");
-        const dataType = getVal(["type", "dataType", "datatype", "DATA_TYPE", "TYPE_NAME"]);
+        const dataType = getVal([
+          "type",
+          "dataType",
+          "datatype",
+          "DATA_TYPE",
+          "TYPE_NAME",
+        ]);
         // max_length 字节，对 nvarchar/nchar 需除以 2
-        const rawLen = getVal(["max_length", "maxLength", "maxlength", "typeLength", "typelength"]);
+        const rawLen = getVal([
+          "max_length",
+          "maxLength",
+          "maxlength",
+          "typeLength",
+          "typelength",
+        ]);
         // 只对变长字符串类型显示长度，定长类型（int、bigint、datetime 等）不显示
-        const isVarLen = ["varchar", "nvarchar", "char", "nchar", "varbinary", "binary"].some(t => dataType.toLowerCase().startsWith(t));
+        const isVarLen = [
+          "varchar",
+          "nvarchar",
+          "char",
+          "nchar",
+          "varbinary",
+          "binary",
+        ].some((t) => dataType.toLowerCase().startsWith(t));
         let fullType = dataType;
         if (isVarLen && rawLen && rawLen !== "0" && rawLen !== 0) {
           const len = Number(rawLen);
           if (len === -1) fullType += "(max)";
           else if (len > 0) {
-            const isDoubleByte = dataType.toLowerCase().startsWith("nvarchar") || dataType.toLowerCase().startsWith("nchar");
+            const isDoubleByte =
+              dataType.toLowerCase().startsWith("nvarchar") ||
+              dataType.toLowerCase().startsWith("nchar");
             fullType += `(${isDoubleByte ? len / 2 : len})`;
           }
         }
@@ -1443,6 +1507,45 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
   }
 
   // ═══ 工具方法 ════════════════════════════════════════════════
+
+  /**
+   * 对实体节点列表应用名称过滤（大小写不敏感）。
+   * - 无过滤词：原样返回（保留空提示等占位节点）
+   * - 有过滤词：仅保留名称包含过滤词的节点；若全部被过滤则显示"无匹配"提示
+   */
+  private filterByName(items: ConnectionTreeItem[]): ConnectionTreeItem[] {
+    const f = this._filterText.trim().toLowerCase();
+    if (!f) return items;
+    const result = items.filter((it) => {
+      // 占位/错误节点不参与过滤
+      if (it.contextValue === CTX.EMPTY || it.contextValue === CTX.ERROR)
+        return false;
+      const label =
+        typeof it.label === "string" ? it.label : it.label?.label || "";
+      return label.toLowerCase().includes(f);
+    });
+    if (result.length === 0) {
+      return [
+        new ConnectionTreeItem(
+          vscode.l10n.t('No matching entities for "{0}"', this._filterText),
+          vscode.TreeItemCollapsibleState.None,
+          CTX.EMPTY,
+        ),
+      ];
+    }
+    // 过滤生效时，将匹配的实体节点图标渲染为黄色，便于识别当前处于过滤状态。
+    // 注意：VS Code 自定义 TreeView 不支持 TreeItem.color 文字着色（平台限制，
+    // extHost 不会把 color 传给渲染器），但支持 ThemeIcon 着色，因此用黄色图标标识。
+    // charts.yellow 在深色模式为亮黄、浅色模式为深黄，主题会自动适配。
+    const filterThemeColor = new vscode.ThemeColor("charts.yellow");
+    for (const it of result) {
+      const icon = it.iconPath;
+      if (icon instanceof vscode.ThemeIcon) {
+        it.iconPath = new vscode.ThemeIcon(icon.id, filterThemeColor);
+      }
+    }
+    return result;
+  }
 
   private formatTooltip(name: string, config: DbConfig | null): string {
     if (!config) return "";

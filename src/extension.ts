@@ -9,12 +9,7 @@ import { DatabaseService } from "./databaseService";
 import { QueryEditorProvider } from "./queryEditorProvider";
 import { ConnectionTreeProvider } from "./connectionTreeProvider";
 import { McpServerTreeProvider, MCP_DEFAULT_PORT } from "./mcpServerProvider";
-import {
-  DbType,
-  quoteName,
-  isSqlServer,
-  isOracle,
-} from "./dbTypes";
+import { DbType, quoteName, isSqlServer, isOracle } from "./dbTypes";
 
 let connectionManager: ConnectionManager;
 let databaseService: DatabaseService;
@@ -50,6 +45,8 @@ export function activate(context: vscode.ExtensionContext) {
     showCollapseAll: true,
   });
   context.subscriptions.push(treeView);
+  // 初始化过滤状态（无过滤词时不显示清除按钮）
+  vscode.commands.executeCommand("setContext", "bigeSql.filterActive", false);
 
   context.subscriptions.push(
     vscode.commands.registerCommand("bigeSql.addConnection", () =>
@@ -58,6 +55,10 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("bigeSql.refreshConnections", () =>
       refreshConnections(),
     ),
+    vscode.commands.registerCommand("bigeSql.filterConnections", () =>
+      filterConnections(),
+    ),
+    vscode.commands.registerCommand("bigeSql.clearFilter", () => clearFilter()),
     vscode.commands.registerCommand("bigeSql.openQueryEditor", (item) =>
       openQueryEditor(item),
     ),
@@ -465,6 +466,27 @@ async function deleteConnection(item: TreeItemData) {
 function refreshConnections() {
   connectionManager.reload();
   connectionTreeProvider.refresh();
+}
+
+/** 弹出输入框设置实体名称过滤词（表、视图、索引等节点统一过滤） */
+async function filterConnections() {
+  const current = connectionTreeProvider.filterText;
+  const text = await vscode.window.showInputBox({
+    title: vscode.l10n.t("Filter database entities by name"),
+    placeHolder: vscode.l10n.t('Enter filter text, e.g. "base"'),
+    value: current,
+    prompt: vscode.l10n.t(
+      "Show only nodes whose names contain the text. Leave empty to clear the filter.",
+    ),
+    ignoreFocusOut: true,
+  });
+  if (text === undefined) return; // 用户取消
+  connectionTreeProvider.setFilter(text);
+}
+
+/** 清除实体名称过滤词，显示所有实体 */
+function clearFilter() {
+  connectionTreeProvider.setFilter("");
 }
 
 async function testConnection(item: TreeItemData) {
