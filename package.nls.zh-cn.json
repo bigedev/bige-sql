@@ -5,6 +5,7 @@
     "view.mcpServer": "MCP 服务器",
     "cmd.addConnection": "添加数据库连接",
     "cmd.refreshConnections": "刷新连接列表",
+    "cmd.refreshConnection": "刷新当前连接结构树",
     "cmd.filterConnections": "按名称过滤实体",
     "cmd.clearFilter": "清除过滤",
     "cmd.openQueryEditor": "打开 SQL 查询编辑器",

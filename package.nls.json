@@ -5,6 +5,7 @@
     "view.mcpServer": "MCP Server",
     "cmd.addConnection": "Add Database Connection",
     "cmd.refreshConnections": "Refresh Connection List",
+    "cmd.refreshConnection": "Refresh Connection Tree",
     "cmd.filterConnections": "Filter Entities by Name",
     "cmd.clearFilter": "Clear Filter",
     "cmd.openQueryEditor": "Open SQL Query Editor",

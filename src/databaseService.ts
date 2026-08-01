@@ -689,7 +689,11 @@ export class DatabaseService {
   async listDatabases(connName: string): Promise<QueryResult> {
     const { pool, config } = await this.getPool(connName);
     if (isMySQL(config.type))
-      return this.execQuery(pool, "SHOW DATABASES", config);
+      return this.execQuery(
+        pool,
+        "SHOW DATABASES WHERE `Database` NOT IN ('information_schema','mysql','performance_schema','sys')",
+        config,
+      );
     if (isPostgres(config.type))
       return this.execQuery(
         pool,
@@ -697,13 +701,16 @@ export class DatabaseService {
           pg_size_pretty(pg_database_size(datname)) AS size
         FROM pg_database
         WHERE datistemplate = false
+          AND datname <> 'postgres'
         ORDER BY datname`,
         config,
       );
     if (isSqlServer(config.type))
       return this.execQuery(
         pool,
-        `SELECT name FROM sys.databases ORDER BY name`,
+        `SELECT name FROM sys.databases
+        WHERE name NOT IN ('master','model','msdb','tempdb')
+        ORDER BY name`,
         config,
       );
     throw new Error("当前数据库类型不支援列出資料庫");
@@ -786,22 +793,25 @@ export class DatabaseService {
       );
     }
     if (isMySQL(config.type)) {
+      // 从 SCHEMATA 列出所有数据库（含无表的空库，避免新建空库被遗漏），
+      // 再 LEFT JOIN 表大小统计显示占用空间。
       return this.execQuery(
         pool,
-        `SELECT TABLE_SCHEMA AS name,
+        `SELECT s.SCHEMA_NAME AS name,
           CASE
-            WHEN total_bytes >= 1099511627776 THEN CONCAT(ROUND(total_bytes / 1099511627776, 2), ' TB')
-            WHEN total_bytes >= 1073741824 THEN CONCAT(ROUND(total_bytes / 1073741824, 2), ' GB')
-            WHEN total_bytes >= 1048576 THEN CONCAT(ROUND(total_bytes / 1048576, 2), ' MB')
-            ELSE CONCAT(ROUND(total_bytes / 1024), ' KB')
+            WHEN t.total_bytes >= 1099511627776 THEN CONCAT(ROUND(t.total_bytes / 1099511627776, 2), ' TB')
+            WHEN t.total_bytes >= 1073741824 THEN CONCAT(ROUND(t.total_bytes / 1073741824, 2), ' GB')
+            WHEN t.total_bytes >= 1048576 THEN CONCAT(ROUND(t.total_bytes / 1048576, 2), ' MB')
+            ELSE CONCAT(ROUND(COALESCE(t.total_bytes, 0) / 1024), ' KB')
           END AS size
-        FROM (
+        FROM information_schema.SCHEMATA s
+        LEFT JOIN (
           SELECT TABLE_SCHEMA, SUM(data_length + index_length) AS total_bytes
           FROM information_schema.TABLES
-          WHERE TABLE_SCHEMA NOT IN ('performance_schema','sys')
           GROUP BY TABLE_SCHEMA
-        ) AS db_sizes
-        ORDER BY TABLE_SCHEMA`,
+        ) t ON t.TABLE_SCHEMA = s.SCHEMA_NAME
+        WHERE s.SCHEMA_NAME NOT IN ('information_schema','mysql','performance_schema','sys')
+        ORDER BY s.SCHEMA_NAME`,
         config,
       );
     }

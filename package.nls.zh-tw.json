@@ -5,6 +5,7 @@
     "view.mcpServer": "MCP 伺服器",
     "cmd.addConnection": "新增資料庫連線",
     "cmd.refreshConnections": "重新整理連線清單",
+    "cmd.refreshConnection": "重新整理目前連線結構樹",
     "cmd.filterConnections": "依名稱篩選實體",
     "cmd.clearFilter": "清除篩選",
     "cmd.openQueryEditor": "開啟 SQL 查詢編輯器",

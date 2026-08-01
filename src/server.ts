@@ -1021,8 +1021,12 @@ async function listSchemas(
   config: DbConnectionConfig,
 ): Promise<any> {
   if (isMySQL(config.type)) {
-    // MySQL 中 DATABASE 即 schema
-    return executeQuery(pool, "SHOW DATABASES", config);
+    // MySQL 中 DATABASE 即 schema，排除系统库
+    return executeQuery(
+      pool,
+      "SHOW DATABASES WHERE `Database` NOT IN ('information_schema','mysql','performance_schema','sys')",
+      config,
+    );
   }
 
   if (isPostgres(config.type)) {
@@ -1691,17 +1695,21 @@ function createMcpServer(): McpServer {
       const { pool, config: cfg } = await getConnection(connName);
       let result: any[];
       if (isMySQL(cfg.type)) {
-        result = await executeQuery(pool, "SHOW DATABASES", cfg);
+        result = await executeQuery(
+          pool,
+          "SHOW DATABASES WHERE `Database` NOT IN ('information_schema','mysql','performance_schema','sys')",
+          cfg,
+        );
       } else if (isPostgres(cfg.type)) {
         result = await executeQuery(
           pool,
-          "SELECT datname AS database FROM pg_database WHERE datistemplate = false ORDER BY datname",
+          "SELECT datname AS database FROM pg_database WHERE datistemplate = false AND datname <> 'postgres' ORDER BY datname",
           cfg,
         );
       } else if (isSqlServer(cfg.type)) {
         result = await executeQuery(
           pool,
-          "SELECT name AS database FROM sys.databases ORDER BY name",
+          "SELECT name AS database FROM sys.databases WHERE name NOT IN ('master','model','msdb','tempdb') ORDER BY name",
           cfg,
         );
       } else {

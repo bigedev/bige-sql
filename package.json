@@ -80,6 +80,12 @@
         "category": "BigeSQL"
       },
       {
+        "command": "bigeSql.refreshConnection",
+        "title": "%cmd.refreshConnection%",
+        "icon": "$(refresh)",
+        "category": "BigeSQL"
+      },
+      {
         "command": "bigeSql.filterConnections",
         "title": "%cmd.filterConnections%",
         "icon": "$(filter)",
@@ -162,6 +168,11 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "bigeSql.refreshConnection",
+          "when": "view == bigeSql.connections && viewItem == connection",
+          "group": "inline@0"
+        },
         {
           "command": "bigeSql.deleteConnection",
           "when": "view == bigeSql.connections && viewItem == connection",

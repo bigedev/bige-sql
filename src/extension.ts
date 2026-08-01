@@ -55,6 +55,9 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("bigeSql.refreshConnections", () =>
       refreshConnections(),
     ),
+    vscode.commands.registerCommand("bigeSql.refreshConnection", (item) =>
+      refreshConnection(item),
+    ),
     vscode.commands.registerCommand("bigeSql.filterConnections", () =>
       filterConnections(),
     ),
@@ -466,6 +469,13 @@ async function deleteConnection(item: TreeItemData) {
 function refreshConnections() {
   connectionManager.reload();
   connectionTreeProvider.refresh();
+}
+
+/** 刷新单个连接的结构树（重新获取该连接下的数据库/表/视图等） */
+function refreshConnection(item: TreeItemData) {
+  const connName = item?.connectionName;
+  if (!connName) return;
+  connectionTreeProvider.refreshConnection(connName);
 }
 
 /** 弹出输入框设置实体名称过滤词（表、视图、索引等节点统一过滤） */
