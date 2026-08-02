@@ -186,6 +186,7 @@ async function createPool(
       database: config.database,
       charset: config.charset || "utf8mb4",
       timezone: config.timezone || "+08:00",
+      ...(config.ssl ? { ssl: { rejectUnauthorized: false } } : {}),
       waitForConnections: true,
       connectionLimit: 1,
       queueLimit: 0,
@@ -201,6 +202,7 @@ async function createPool(
       database: config.database || "postgres",
       max: 1,
       idleTimeoutMillis: 30000,
+      ...(config.ssl ? { ssl: { rejectUnauthorized: false } } : {}),
     });
     // 初始化连接池
     await pool.query("SELECT 1");

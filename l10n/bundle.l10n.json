@@ -64,6 +64,7 @@
     "No matching entities for \"{0}\"": "No matching entities for \"{0}\"",
     "Error": "Error",
     "Edit Connection": "Edit Connection",
+    "Use SSL": "Use SSL",
     "Connection Name": "Connection Name",
     "Database Type": "Database Type",
     "Dameng DM8": "Dameng DM8",

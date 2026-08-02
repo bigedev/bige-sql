@@ -111,7 +111,9 @@
   document.getElementById("connPort").addEventListener("input", markModified);
   document.getElementById("connUser").addEventListener("input", markModified);
   document.getElementById("connHost").addEventListener("input", markModified);
-  document.getElementById("connDatabase").addEventListener("input", markModified);
+  document
+    .getElementById("connDatabase")
+    .addEventListener("input", markModified);
 
   // ─── 获取表单配置 ────────────────────────────────
 
@@ -138,6 +140,7 @@
       user: document.getElementById("connUser").value || "root",
       password: document.getElementById("connPassword").value || "",
       database: document.getElementById("connDatabase").value || "",
+      ssl: !!document.getElementById("connSsl")?.checked,
     };
   }
 

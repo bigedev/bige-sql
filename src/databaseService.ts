@@ -73,7 +73,11 @@ function safeValue(val: any, seen?: WeakSet<object>): any {
   // Lob 对象检测（oracledb / dmdb 均适用）：
   //   构造函数名均为 "Lob"，继承 Duplex（有 pipe 方法）。
   //   oracledb.Lob.type 是 DbType 对象；dmdb.Lob.type 是数字。
-  if (typeof val === "object" && val.constructor?.name === "Lob" && typeof val.pipe === "function") {
+  if (
+    typeof val === "object" &&
+    val.constructor?.name === "Lob" &&
+    typeof val.pipe === "function"
+  ) {
     const t = val.type;
     let typeName = "LOB";
     if (typeof t === "object") {
@@ -179,6 +183,7 @@ export class DatabaseService {
         database: config.database,
         charset: config.charset || "utf8mb4",
         timezone: config.timezone || "+08:00",
+        ...(config.ssl ? { ssl: { rejectUnauthorized: false } } : {}),
         waitForConnections: true,
         connectionLimit: 1,
         queueLimit: 0,
@@ -194,6 +199,7 @@ export class DatabaseService {
         database: config.database || "postgres",
         max: 1,
         idleTimeoutMillis: 30000,
+        ...(config.ssl ? { ssl: { rejectUnauthorized: false } } : {}),
       });
       await pool.query("SELECT 1");
       return pool;
@@ -403,7 +409,9 @@ export class DatabaseService {
   ): Promise<QueryResult> {
     const { pool, config } = await this.getPool(connName, dbName);
     // Oracle/Dameng: dbName 是 user/schema，作为 schemaName 的 fallback
-    const effectiveSchema = schemaName || ((isOracle(config?.type) || isDameng(config?.type)) ? dbName : undefined);
+    const effectiveSchema =
+      schemaName ||
+      (isOracle(config?.type) || isDameng(config?.type) ? dbName : undefined);
     return this.execQuery(pool, sql, config, effectiveSchema);
   }
 
@@ -428,10 +436,16 @@ export class DatabaseService {
 
     if (isPostgres(config.type)) {
       if (schemaName) {
-        await pool.query(`SET search_path TO "${schemaName.replace(/"/g, '""')}"`);
+        await pool.query(
+          `SET search_path TO "${schemaName.replace(/"/g, '""')}"`,
+        );
       }
       const result = await pool.query(sql);
-      return { rows: safeRows(result.rows || []), isSelect, fields: result.fields };
+      return {
+        rows: safeRows(result.rows || []),
+        isSelect,
+        fields: result.fields,
+      };
     }
 
     if (isSQLite(config.type)) {
@@ -454,7 +468,9 @@ export class DatabaseService {
       const conn = await pool.getConnection();
       try {
         if (schemaName) {
-          await conn.execute(`ALTER SESSION SET CURRENT_SCHEMA = "${schemaName.replace(/"/g, '""')}"`);
+          await conn.execute(
+            `ALTER SESSION SET CURRENT_SCHEMA = "${schemaName.replace(/"/g, '""')}"`,
+          );
         }
         const result = await conn.execute(sql, [], {
           outFormat: dmdb.OUT_FORMAT_OBJECT,
@@ -577,7 +593,8 @@ export class DatabaseService {
 
     if (isDameng(config.type)) {
       // Oracle/Dameng: dbName 是 user/schema，作为 schemaName 的 fallback
-      const actualSchema = schemaName || (isDameng(config.type) ? dbName : undefined);
+      const actualSchema =
+        schemaName || (isDameng(config.type) ? dbName : undefined);
       const ownerFilter = actualSchema
         ? `AND OWNER = '${actualSchema.replace(/'/g, "''")}'`
         : `AND OWNER NOT IN ('SYS','SYSDBA','SYSAUDITOR','CTISYS')`;
@@ -605,7 +622,8 @@ export class DatabaseService {
 
     if (isOracle(config.type)) {
       // Oracle/Dameng: dbName 是 user/schema，作为 schemaName 的 fallback
-      const actualSchema = schemaName || (isOracle(config.type) ? dbName : undefined);
+      const actualSchema =
+        schemaName || (isOracle(config.type) ? dbName : undefined);
       const ownerFilter = actualSchema
         ? `AND OWNER = '${actualSchema.replace(/'/g, "''")}'`
         : `AND OWNER NOT IN ('SYSTEM','OUTLN','DBSNMP','XDB','APPQOSSYS','WMSYS','EXFSYS','CTXSYS','ORDSYS','ORDDATA','MDSYS','OLAPSYS')`;
@@ -631,7 +649,9 @@ export class DatabaseService {
     const { pool, config } = await this.getPool(connName, dbName);
     const safeName = tableName.replace(/`/g, "``").replace(/"/g, '""');
     if (isMySQL(config.type)) {
-      const fullName = dbName ? `\`${dbName}\`.\`${safeName}\`` : `\`${safeName}\``;
+      const fullName = dbName
+        ? `\`${dbName}\`.\`${safeName}\``
+        : `\`${safeName}\``;
       return this.execQuery(pool, `DESCRIBE ${fullName}`, config);
     }
 

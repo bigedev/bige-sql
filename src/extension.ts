@@ -819,6 +819,10 @@ function getAddConnectionHtml(
       <div class="form-group"><label>${vscode.l10n.t("Username")}</label><input id="connUser" value="${editConfig?.user || ""}" placeholder="root" /></div>
       <div class="form-group"><label>${vscode.l10n.t("Password")}</label><input id="connPassword" type="password" value="${editConfig?.password || ""}" placeholder="password" /></div>
     </div>
+    <div class="form-group" style="flex-direction:row;align-items:center;gap:8px;margin-top:4px;">
+      <input type="checkbox" id="connSsl" ${editConfig?.ssl ? "checked" : ""} style="width:auto;margin:0;" />
+      <label for="connSsl" style="margin:0;">${vscode.l10n.t("Use SSL")}</label>
+    </div>
     </div>
   <div id="sqliteField" style="display:${editConfig?.type === DbType.SQLITE ? "block" : "none"}">
     <div class="form-group"><label>${vscode.l10n.t("SQLite File Path")}</label><div class="input-with-btn"><input id="connPath" value="${editConfig?.path || ""}" placeholder="/path/to/database.db" /><button class="btn-icon" onclick="browseSqlitePath()" title="${vscode.l10n.t("Browse")}">📂</button></div></div>

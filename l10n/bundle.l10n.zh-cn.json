@@ -64,6 +64,7 @@
     "No matching entities for \"{0}\"": "没有名称包含 \"{0}\" 的实体",
     "Error": "错误",
     "Edit Connection": "编辑连接",
+    "Use SSL": "启用 SSL",
     "Connection Name": "连接名称",
     "Database Type": "数据库类型",
     "Dameng DM8": "达梦 DM8",

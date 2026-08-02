@@ -64,6 +64,7 @@
     "No matching entities for \"{0}\"": "沒有名稱包含 \"{0}\" 的實體",
     "Error": "錯誤",
     "Edit Connection": "編輯連線",
+    "Use SSL": "啟用 SSL",
     "Connection Name": "連線名稱",
     "Database Type": "資料庫類型",
     "Dameng DM8": "達夢 DM8",

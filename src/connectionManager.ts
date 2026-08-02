@@ -21,6 +21,8 @@ export interface DbConfig {
   oraclePrivilege?: number;
   /** Oracle 连接字符串中使用 SID 格式（host:port:sid）而非服务名（host:port/service） */
   oracleUseSid?: boolean;
+  /** 是否启用 SSL 连接（MySQL/PostgreSQL） */
+  ssl?: boolean;
 }
 
 export class ConnectionManager {
