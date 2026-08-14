@@ -1,7 +1,7 @@
 {
   "name": "bige-sql",
   "displayName": "%extension.name%",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "%extension.description%",
   "main": "./out/src/extension.js",
   "l10n": "./l10n",
