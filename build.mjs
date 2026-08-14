@@ -2,13 +2,13 @@
  * BigeSQL - esbuild 构建脚本
  *
  * 将 TypeScript 源文件和 JS 依赖打包成单个 JS 文件，
- * 原生模块（better-sqlite3, dmdb, oracledb 等）标记为 external。
+ * 原生模块（dmdb, oracledb 等）标记为 external。
+ * SQLite 使用 Node 内置模块 node:sqlite，无需额外依赖。
  */
 import * as esbuild from "esbuild";
 
 /** 原生模块列表 — 这些不能/不需要被 esbuild 打包 */
 const NATIVE_EXTERNALS = [
-  "better-sqlite3",
   "dmdb",
   "oracledb",
   "mssql",

@@ -21,7 +21,7 @@ import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js
 import { z } from "zod";
 import mysql from "mysql2/promise";
 import pg from "pg";
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 import dmdb from "dmdb";
 import mssql from "mssql";
 import oracledb from "oracledb";
@@ -29,8 +29,8 @@ import { readFileSync, existsSync, statSync } from "fs";
 import { join } from "path";
 import type { IncomingMessage, ServerResponse } from "http";
 
-/** 将 Buffer 转为 BLOB 大小占位符 */
-function formatBuffer(val: Buffer): string {
+/** 将 Buffer/Uint8Array（node:sqlite 返回 Uint8Array）转为 BLOB 大小占位符 */
+function formatBuffer(val: Buffer | Uint8Array): string {
   const size = val.length;
   return size > 1024
     ? `[BLOB ${(size / 1024).toFixed(1)} KB]`
@@ -81,7 +81,7 @@ interface ConnectionsConfig {
 type AnyPool =
   | mysql.Pool
   | pg.Pool
-  | Database.Database
+  | DatabaseSync
   | mssql.ConnectionPool
   | oracledb.Pool
   | any;
@@ -249,7 +249,12 @@ async function createPool(
     if (!dbPath) {
       throw new Error("SQLite 連線需要設定 path");
     }
-    const db = new Database(dbPath, { readonly: config.readonly || false });
+    // node:sqlite 为 Node 内置模块，无需随扩展分发原生二进制，
+    // 彻底规避原生模块的平台/ABI 兼容问题（Electron vs 系统 Node）。
+    const db = new DatabaseSync(dbPath, {
+      readOnly: config.readonly || false,
+      timeout: 5000,
+    });
     return db;
   }
 
@@ -350,7 +355,7 @@ async function executeQuery(
   }
 
   if (isSQLite(config.type)) {
-    const db = pool as Database.Database;
+    const db = pool as DatabaseSync;
     const stmt = db.prepare(sql);
     const upper = sql.trim().toUpperCase();
     if (
@@ -361,7 +366,10 @@ async function executeQuery(
       return stmt.all().map((r: any) => {
         const n: any = {};
         for (const k of Object.keys(r))
-          n[k] = r[k] instanceof Buffer ? formatBuffer(r[k]) : r[k];
+          n[k] =
+            r[k] instanceof Buffer || r[k] instanceof Uint8Array
+              ? formatBuffer(r[k])
+              : r[k];
         return n;
       });
     } else {
@@ -496,7 +504,7 @@ async function closePool(
   } else if (isPostgres(config.type)) {
     await (pool as pg.Pool).end();
   } else if (isSQLite(config.type)) {
-    (pool as Database.Database).close();
+    (pool as DatabaseSync).close();
   } else if (isSqlServer(config.type)) {
     await (pool as mssql.ConnectionPool).close();
   } else if (isOracle(config.type)) {
@@ -517,7 +525,7 @@ async function testPool(
   ) {
     await (pool as any).query("SELECT 1");
   } else if (isSQLite(config.type)) {
-    (pool as Database.Database).prepare("SELECT 1").get();
+    (pool as DatabaseSync).prepare("SELECT 1").get();
   } else if (isOracle(config.type)) {
     const oraclePool = pool as oracledb.Pool;
     const conn = await oraclePool.getConnection();

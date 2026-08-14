@@ -4,7 +4,7 @@
  */
 import mysql from "mysql2/promise";
 import pg from "pg";
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 import dmdb from "dmdb";
 import mssql from "mssql";
 import oracledb from "oracledb";
@@ -207,8 +207,11 @@ export class DatabaseService {
 
     if (isSQLite(config.type)) {
       if (!config.path) throw new Error("SQLite connection requires path");
-      return new Database(config.path, {
-        readonly: config.readonly || false,
+      // node:sqlite 为 Node 内置模块，无需随扩展分发原生二进制，
+      // 彻底规避原生模块的平台/ABI 兼容问题（Electron vs 系统 Node）。
+      return new DatabaseSync(config.path, {
+        readOnly: config.readonly || false,
+        timeout: 5000,
       });
     }
 

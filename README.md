@@ -25,7 +25,7 @@
 | ------------------- | ---------------------- | --------------------- |
 | **MySQL / MariaDB** | `mysql2`               | TCP 直连              |
 | **PostgreSQL**      | `pg`                   | TCP 直连              |
-| **SQLite**          | `better-sqlite3`       | 本地文件              |
+| **SQLite**          | `node:sqlite`（内置） | 本地文件              |
 | **达梦 DM8**        | `dmdb`（官方驱动）     | TCP 直连，无需 ODBC   |
 | **SQL Server**      | `mssql` + `tedious`    | TCP 直连              |
 | **Oracle**          | `oracledb`（官方驱动） | TCP 直连（Thin 模式） |
@@ -36,8 +36,8 @@
 
 ### 前置要求
 
-- **Node.js** ≥ 18.x
-- **VS Code** ≥ 1.85.0
+- **Node.js** ≥ 22.5（`node:sqlite` 内置模块要求；独立运行 MCP Server 时）
+- **VS Code** ≥ 1.101（内置 Node ≥ 22.5，含 `node:sqlite`）
 - **npm** ≥ 9.x
 
 ### 方式一：从 VSIX 安装（推荐）
