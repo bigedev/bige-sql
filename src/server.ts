@@ -25,7 +25,7 @@ import Database from "better-sqlite3";
 import dmdb from "dmdb";
 import mssql from "mssql";
 import oracledb from "oracledb";
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, statSync } from "fs";
 import { join } from "path";
 import type { IncomingMessage, ServerResponse } from "http";
 
@@ -70,6 +70,8 @@ interface DbConnectionConfig {
   oraclePrivilege?: number;
   /** Oracle 使用 SID 格式（host:port:sid）而非服务名（host:port/service） */
   oracleUseSid?: boolean;
+  /** 是否启用 SSL 连接（MySQL/PostgreSQL） */
+  ssl?: boolean;
 }
 
 interface ConnectionsConfig {
@@ -96,13 +98,44 @@ function loadConnections(): Record<string, DbConnectionConfig> {
   if (!existsSync(CONFIG_PATH)) {
     return {};
   }
-  const raw = readFileSync(CONFIG_PATH, "utf-8");
-  const config: ConnectionsConfig = JSON.parse(raw);
-  return config.connections || {};
+  try {
+    const raw = readFileSync(CONFIG_PATH, "utf-8");
+    const config: ConnectionsConfig = JSON.parse(raw);
+    return config.connections || {};
+  } catch (err: any) {
+    console.error("加载 connections.json 失败:", err?.message);
+    return {};
+  }
 }
 
-const connections = loadConnections();
-const connectionNames = Object.keys(connections);
+// 连接配置在模块加载时读取一次，之后按需重载：
+// 可视化查询新增/修改连接后，MCP 无需重启即可看到最新配置
+let connections = loadConnections();
+let connectionNames = Object.keys(connections);
+
+function getConfigMtime(): number {
+  try {
+    return statSync(CONFIG_PATH).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+let lastConfigMtime = getConfigMtime();
+
+/** 若 connections.json 已变更则重新加载连接配置（新增/修改/删除连接后自动同步） */
+function refreshConnections(): void {
+  const mtime = getConfigMtime();
+  if (mtime !== lastConfigMtime) {
+    lastConfigMtime = mtime;
+    const next = loadConnections();
+    connections = next;
+    connectionNames = Object.keys(next);
+    console.error(
+      `📡 connections.json 已更新，当前 ${connectionNames.length} 个连接: ${connectionNames.join(", ")}`,
+    );
+  }
+}
 
 // ─── 连接池管理 ──────────────────────────────────────────────────
 
@@ -118,6 +151,7 @@ interface ConnectionResult {
 }
 
 async function getConnection(name?: string): Promise<ConnectionResult> {
+  refreshConnections();
   const connName = name || getDefaultConnection();
   if (!connName) {
     throw new Error("沒有可用的資料庫連線。請在 connections.json 中設定連線。");
@@ -146,6 +180,7 @@ async function getConnectionWithDb(
   name: string,
   dbName?: string,
 ): Promise<ConnectionResult> {
+  refreshConnections();
   const connName = name || getDefaultConnection();
   if (!connName) {
     throw new Error("沒有可用的資料庫連線。請在 connections.json 中設定連線。");
@@ -1633,6 +1668,7 @@ function createMcpServer(): McpServer {
       description: `列出所有已配置的数据库连接。当前可用连接: ${connectionNames.join(", ") || "(无)"}`,
     },
     async () => {
+      refreshConnections();
       const list = connectionNames.map((n) => {
         const c = connections[n];
         return {

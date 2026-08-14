@@ -71,6 +71,18 @@
       ? "block"
       : "none";
 
+    // SSL 配置项：仅 MySQL/MariaDB/PostgreSQL 显示，其他类型隐藏
+    var sslField = document.getElementById("sslField");
+    if (sslField) {
+      sslField.style.display =
+        type === "mysql" ||
+        type === "mariadb" ||
+        type === "postgresql" ||
+        type === "postgres"
+          ? "flex"
+          : "none";
+    }
+
     // 数据库名字段：仅 Oracle 显示（SID/服务名），其他类型隐藏
     var dbGroup = document.getElementById("dbGroup");
     if (dbGroup) {

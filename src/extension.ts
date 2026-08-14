@@ -187,7 +187,11 @@ class BigeSqlMcpServerProvider implements vscode.McpServerDefinitionProvider {
         "BigeSQL",
         "node",
         [this.serverPath],
-        undefined,
+        // 把 connections.json 实际路径传给 MCP 子进程，
+        // 与可视化查询使用同一份配置（全局存储目录），否则 MCP 会读到扩展目录下的旧文件
+        {
+          BIGE_SQL_CONFIG_PATH: connectionManager.getConnectionsPath(),
+        },
         "0.2.0",
       ),
     ];
@@ -819,7 +823,8 @@ function getAddConnectionHtml(
       <div class="form-group"><label>${vscode.l10n.t("Username")}</label><input id="connUser" value="${editConfig?.user || ""}" placeholder="root" /></div>
       <div class="form-group"><label>${vscode.l10n.t("Password")}</label><input id="connPassword" type="password" value="${editConfig?.password || ""}" placeholder="password" /></div>
     </div>
-    <div class="form-group" style="flex-direction:row;align-items:center;gap:8px;margin-top:4px;">
+    <!-- SSL 配置项：仅 MySQL/MariaDB/PostgreSQL 支持并显示 -->
+    <div id="sslField" class="form-group" style="flex-direction:row;align-items:center;gap:8px;margin-top:4px;display:${editConfig?.type === DbType.MYSQL || editConfig?.type === DbType.MARIADB || editConfig?.type === DbType.POSTGRESQL || editConfig?.type === DbType.POSTGRES ? "flex" : "none"};">
       <input type="checkbox" id="connSsl" ${editConfig?.ssl ? "checked" : ""} style="width:auto;margin:0;" />
       <label for="connSsl" style="margin:0;">${vscode.l10n.t("Use SSL")}</label>
     </div>
