@@ -593,7 +593,7 @@ async function listTables(
   if (isDameng(config.type)) {
     const ownerFilter = config.user
       ? `WHERE OWNER = '${config.user.replace(/'/g, "''")}'`
-      : `WHERE OWNER NOT IN ('SYS','SYSDBA','SYSAUDITOR','CTISYS')`;
+      : `WHERE OWNER NOT IN ('SYS','SYSAUDITOR','CTISYS')`;
     return executeQuery(
       pool,
       `SELECT TABLE_NAME AS name, 'TABLE' AS type FROM ALL_TABLES ${ownerFilter}
@@ -1021,7 +1021,7 @@ async function searchTables(
       pool,
       `SELECT TABLE_NAME AS name, TABLE_TYPE AS type
        FROM ALL_TABLES
-       WHERE OWNER NOT IN ('SYS','SYSDBA','SYSAUDITOR','CTISYS')
+       WHERE OWNER NOT IN ('SYS','SYSAUDITOR','CTISYS')
          AND TABLE_NAME LIKE '%${keyword}%'
        ORDER BY TABLE_NAME`,
       config,
@@ -1272,7 +1272,7 @@ async function listProcedures(
       pool,
       `SELECT OBJECT_NAME AS name, OBJECT_TYPE AS type
        FROM ALL_OBJECTS
-       WHERE OBJECT_TYPE IN ('PROCEDURE','FUNCTION') AND OWNER NOT IN ('SYS','SYSDBA')
+       WHERE OBJECT_TYPE IN ('PROCEDURE','FUNCTION') AND OWNER NOT IN ('SYS')
        ORDER BY OBJECT_NAME`,
       config,
     );
@@ -1485,7 +1485,7 @@ async function listViews(
       pool,
       `SELECT VIEW_NAME AS name, TEXT AS definition
        FROM ALL_VIEWS
-       WHERE OWNER NOT IN ('SYS','SYSDBA','SYSAUDITOR','CTISYS')
+       WHERE OWNER NOT IN ('SYS','SYSAUDITOR','CTISYS')
        ORDER BY VIEW_NAME`,
       config,
     );

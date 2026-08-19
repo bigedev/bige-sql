@@ -598,9 +598,11 @@ export class DatabaseService {
       // Oracle/Dameng: dbName 是 user/schema，作为 schemaName 的 fallback
       const actualSchema =
         schemaName || (isDameng(config.type) ? dbName : undefined);
+      // 默认只排除真正的系统 schema。SYSDBA 虽为超级管理员，但常被直接用作
+      // 业务账号建表（owner=SYSDBA），不能排除，否则看不到 SYSDBA 下的业务表。
       const ownerFilter = actualSchema
         ? `AND OWNER = '${actualSchema.replace(/'/g, "''")}'`
-        : `AND OWNER NOT IN ('SYS','SYSDBA','SYSAUDITOR','CTISYS')`;
+        : `AND OWNER NOT IN ('SYS','SYSAUDITOR','CTISYS')`;
       return this.execQuery(
         pool,
         `SELECT TABLE_NAME AS name, 'TABLE' AS type FROM ALL_TABLES WHERE 1=1 ${ownerFilter}
@@ -841,7 +843,7 @@ export class DatabaseService {
     if (isDameng(config.type)) {
       const ownerFilter = userName
         ? `AND OWNER = '${userName.replace(/'/g, "''")}'`
-        : `AND OWNER NOT IN ('SYS','SYSDBA','SYSAUDITOR','CTISYS')`;
+        : `AND OWNER NOT IN ('SYS','SYSAUDITOR','CTISYS')`;
       return this.execQuery(
         pool,
         `SELECT DISTINCT OWNER AS name FROM ALL_TABLES
@@ -912,7 +914,7 @@ export class DatabaseService {
     if (isDameng(config.type)) {
       const ownerFilter = safeSchema
         ? `AND OWNER = ${safeSchema}`
-        : `AND OWNER NOT IN ('SYS','SYSDBA')`;
+        : `AND OWNER NOT IN ('SYS')`;
       return this.execQuery(
         pool,
         `SELECT OBJECT_NAME AS name, OBJECT_TYPE AS type FROM ALL_OBJECTS
