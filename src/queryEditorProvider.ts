@@ -260,8 +260,11 @@ export class QueryEditorProvider {
       queryCompleted: vscode.l10n.t("Query completed"),
       executed: vscode.l10n.t("Executed"),
       noTables: vscode.l10n.t("No tables"),
-      resultCount: (n: number) => vscode.l10n.t("{0} rows", n),
-      affectedRows: (n: number) => vscode.l10n.t("Affected rows: {0}", n),
+      // 注意：必须是字符串而非函数——函数会被 JSON.stringify 丢弃，
+      // 导致前台 L.resultCount/L.affectedRows 为 undefined，显示 "undefined"。
+      // 占位符 {0} 由前台的 fn() 辅助函数替换。
+      resultCount: vscode.l10n.t("{0} rows"),
+      affectedRows: vscode.l10n.t("Affected rows: {0}"),
       emptyResult: vscode.l10n.t("Query result is empty (0 rows)"),
       executeHint: vscode.l10n.t("Click ▶ Run to execute SQL query"),
       sqlPlaceholder: vscode.l10n.t("Enter SQL statement here\u2026"),

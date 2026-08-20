@@ -418,6 +418,9 @@ async function executeQuery(
         });
       }
       if (result.rowsAffected !== undefined) {
+        // DML（INSERT/UPDATE/DELETE）：达梦连接为 autoCommit=false，必须显式提交
+        // 否则连接关闭时事务回滚，数据不会真正写入
+        await conn.commit();
         return { affectedRows: result.rowsAffected };
       }
       return result.rows || [];

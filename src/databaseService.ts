@@ -489,12 +489,16 @@ export class DatabaseService {
           });
           return { rows, isSelect: true };
         }
-        if (result.rowsAffected !== undefined)
+        if (result.rowsAffected !== undefined) {
+          // DML（INSERT/UPDATE/DELETE）：达梦连接为 autoCommit=false，必须显式提交
+          // 否则连接关闭时事务回滚，数据不会真正写入
+          await conn.commit();
           return {
             rows: [{ affectedRows: result.rowsAffected }],
             isSelect: false,
             affectedRows: result.rowsAffected,
           };
+        }
         return { rows: result.rows || [], isSelect: true };
       } finally {
         await conn.close();
