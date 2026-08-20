@@ -758,11 +758,6 @@ export class DatabaseService {
         `SELECT USERNAME AS name FROM ALL_USERS ORDER BY USERNAME`,
         config,
       );
-      return this.execQuery(
-        pool,
-        `SELECT name FROM sys.schemas ORDER BY name`,
-        config,
-      );
     }
     if (isOracle(config.type)) {
       // Oracle 12c+ 用 ORACLE_MAINTAINED 精确过滤系统用户；
@@ -841,13 +836,10 @@ export class DatabaseService {
       );
     }
     if (isDameng(config.type)) {
-      const ownerFilter = userName
-        ? `AND OWNER = '${userName.replace(/'/g, "''")}'`
-        : `AND OWNER NOT IN ('SYS','SYSAUDITOR','CTISYS')`;
+      // 列出所有模式（不过滤系统模式）
       return this.execQuery(
         pool,
-        `SELECT DISTINCT OWNER AS name FROM ALL_TABLES
-        WHERE 1=1 ${ownerFilter}
+        `SELECT OBJECT_NAME name FROM all_objects WHERE OBJECT_TYPE = 'SCH'
         ORDER BY name`,
         config,
       );
@@ -862,12 +854,10 @@ export class DatabaseService {
       );
     }
     if (isOracle(config.type)) {
-      const ownerFilter = userName
-        ? `AND OWNER = '${userName.replace(/'/g, "''")}'`
-        : `AND OWNER NOT IN ('SYSTEM','OUTLN','DBSNMP','XDB','APPQOSSYS','WMSYS','EXFSYS','CTXSYS','ORDSYS','ORDDATA','MDSYS','OLAPSYS')`;
+      // 列出所有模式（不过滤系统模式）
       return this.execQuery(
         pool,
-        `SELECT DISTINCT OWNER AS name FROM ALL_TABLES WHERE 1=1 ${ownerFilter} ORDER BY name`,
+        `SELECT DISTINCT OWNER AS name FROM ALL_TABLES ORDER BY name`,
         config,
       );
     }

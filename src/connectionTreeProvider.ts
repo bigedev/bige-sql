@@ -3,24 +3,32 @@
  *
  * 树结构（按数据库类型区分）：
  *
- * PostgreSQL / Dameng DM8:
+ * PostgreSQL:
  *   Connection
- *   ├── � User: postgres
- *   │   ├── 📦 Schema: public (含大小)
- *   │   │   ├── 📋 Tables (n)
- *   │   │   │   └── tableName [点击: 查看数据]
- *   │   │   │       ├── 📄 Columns
- *   │   │       ├── 🔑 Primary Keys
- *   │   │       ├── 🔗 Foreign Keys
- *   │   │       ├── 📇 Indexes
- *   │   │       └── ⚡ Triggers
+ *   ├── 📦 Database: postgres
+ *   │   └── 📦 Schema: public (含大小)
+ *   │       ├── 📋 Tables (n)
+ *   │       │   └── tableName [点击: 查看数据]
+ *   │       │       ├── 📄 Columns
+ *   │       │       ├── 🔑 Primary Keys
+ *   │       │       ├── 🔗 Foreign Keys
+ *   │       │       ├── 📇 Indexes
+ *   │       │       └── ⚡ Triggers
+ *   │       ├── 👁️ Views (n)
+ *   │       │   └── viewName [点击: 查看数据]
+ *   │       │       └── 📄 Columns
+ *   │       └── ⚙️ Procedures (n)
+ *   │           └── procName
+ *   │               └── 📥 Parameters
+ *   └── 📦 Database: otherdb
+ *
+ * Dameng DM8 / Oracle:
+ *   Connection
+ *   ├── 📦 Schema: HYD
+ *   │   ├── 📋 Tables (n)
  *   │   ├── 👁️ Views (n)
- *   │   │   └── viewName [点击: 查看数据]
- *   │   │       └── 📄 Columns
  *   │   └── ⚙️ Procedures (n)
- *   │       └── procName
- *   │           └── 📥 Parameters
- *   └── 📦 Schema: app
+ *   └── 📦 Schema: SYSDBA
  *
  * MySQL / MariaDB:
  *   Connection
@@ -77,7 +85,6 @@ function getDbIconPath(
 const CTX = {
   CONNECTION: "connection",
   DATABASE: "database",
-  USER: "user",
   SCHEMA: "schema",
   TABLES_GROUP: "tables-group",
   VIEWS_GROUP: "views-group",
@@ -204,20 +211,6 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
       // 连接 → 按数据库类型分派
       case CTX.CONNECTION:
         return this.getConnectionChildren(conn);
-
-      // 用户（DM）→ 架构列表
-      case CTX.USER: {
-        // Oracle/Dameng 的 user 就是 schema，跳过重复的 schema 层直接显示对象分组
-        const userCfg = this.connectionManager.getConnectionRaw(conn);
-        if (isOracle(userCfg?.type) || isDameng(userCfg?.type)) {
-          return this.getObjectGroupItems(
-            conn,
-            element.schemaName,
-            element.dbName,
-          );
-        }
-        return this.getSchemaItems(conn, element.schemaName);
-      }
 
       // 数据库（PG）→ 架构列表
       case CTX.DATABASE:
@@ -388,13 +381,13 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
       return this.getDatabaseItems(connName);
     }
 
-    // Oracle：listUsers 返回所有用户/所有者（第二级），同 Dameng
+    // Oracle：listSchemas 返回所有模式（第二级）
     if (isOracle(config.type)) {
-      return this.getUserItems(connName);
+      return this.getSchemaItems(connName);
     }
 
-    // Dameng：listUsers 返回所有用户/所有者（第二级）
-    return this.getUserItems(connName);
+    // Dameng：listSchemas 返回所有模式（第二级）
+    return this.getSchemaItems(connName);
   }
 
   /** 返回数据库列表（PG 第二级） */
@@ -429,42 +422,6 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
       this.cache.set(key, items);
       return items;
     } catch {
-      const items = await this.getSchemaItems(connName);
-      this.cache.set(key, items);
-      return items;
-    }
-  }
-
-  /** 返回用户列表（DM 第二级） */
-  private async getUserItems(connName: string): Promise<ConnectionTreeItem[]> {
-    const key = `${connName}-users`;
-    if (this.cache.has(key)) return this.cache.get(key)!;
-
-    try {
-      const result = await this.databaseService.listUsers(connName);
-      const users = result.rows || [];
-      if (users.length === 0) {
-        // 没有用户数据时回退到架构层级
-        const items = await this.getSchemaItems(connName);
-        this.cache.set(key, items);
-        return items;
-      }
-      const items = users.map((u: any) => {
-        const name = u.name || "";
-        return new ConnectionTreeItem(
-          `👤 ${name}`,
-          vscode.TreeItemCollapsibleState.Collapsed,
-          CTX.USER,
-          {
-            connectionName: connName,
-            schemaName: name,
-          },
-        );
-      });
-      this.cache.set(key, items);
-      return items;
-    } catch {
-      // 出错时回退到架构层级
       const items = await this.getSchemaItems(connName);
       this.cache.set(key, items);
       return items;
@@ -525,7 +482,8 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
             dbName: isOracleType ? undefined : isMySQLType ? name : userName,
             description: desc,
             tooltip: tip,
-            iconPath: new vscode.ThemeIcon("repo"),
+            // MySQL 第一级是数据库，使用数据库图标；其他类型（PG/达梦/Oracle 的 schema）用 repo 图标
+            iconPath: new vscode.ThemeIcon(isMySQLType ? "database" : "repo"),
           },
         );
       });

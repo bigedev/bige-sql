@@ -194,7 +194,8 @@ export class QueryEditorProvider {
               let items: string[] = [];
 
               if (isOracle(type) || isDameng(type)) {
-                const result = await databaseService!.listUsers(connection);
+                // 模式即第一级（与树一致），列出所有模式
+                const result = await databaseService!.listSchemas(connection);
                 items = result.rows.map((r: any) => r.name);
               } else if (isMySQL(type) || isPostgres(type) || isSqlServer(type)) {
                 const result = await databaseService!.listDatabases(connection);
@@ -204,7 +205,7 @@ export class QueryEditorProvider {
               panel?.webview.postMessage({
                 command: "databasesOrUsersList",
                 items,
-                type: (isOracle(type) || isDameng(type)) ? "users" : "databases",
+                type: (isOracle(type) || isDameng(type)) ? "schemas" : "databases",
               });
             } catch (err: any) {
               panel?.webview.postMessage({
@@ -350,7 +351,7 @@ function setStatus(txt,type){const b=document.getElementById('statusBar');b.clas
 function showToast(m){const t=document.getElementById('toast');if(t){t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000)}}
 window.addEventListener('message',event=>{const msg=event.data;
 if(msg.command==='queryResult'){if(msg.error){document.getElementById('resultContent').innerHTML='<div class="error-detail">❌ '+escapeHtml(msg.error)+'</div>';setStatus(L.queryFailed,'error');return}renderResult(msg.data)}
-if(msg.command==='databasesOrUsersList'){const dbSel=document.getElementById('dbSelect');if(msg.error){dbSel.innerHTML='<option value="">'+L.error+': '+escapeHtml(msg.error)+'</option>';return}const isUsers=msg.type==='users';dbSel.innerHTML='';let matched=false;msg.items.forEach(function(db){const opt=document.createElement('option');opt.value=db;opt.textContent=db;const shouldSelect=db==='${dbName || ""}'||(isUsers&&db==='${schemaName || ""}');if(shouldSelect){opt.selected=true;matched=true}dbSel.appendChild(opt)});if(!matched&&msg.items.length>0){dbSel.selectedIndex=0;currentDbName=dbSel.value;if(isUsers)currentSchema=currentDbName;onDbChange()}else if(matched){currentDbName=dbSel.value;if(isUsers)currentSchema=currentDbName;onDbChange()}else if(currentDbName)onDbChange();else onDbChange()}
+if(msg.command==='databasesOrUsersList'){const dbSel=document.getElementById('dbSelect');if(msg.error){dbSel.innerHTML='<option value="">'+L.error+': '+escapeHtml(msg.error)+'</option>';return}const isSchema=msg.type==='users'||msg.type==='schemas';dbSel.innerHTML='';let matched=false;msg.items.forEach(function(db){const opt=document.createElement('option');opt.value=db;opt.textContent=db;const shouldSelect=db==='${dbName || ""}'||(isSchema&&db==='${schemaName || ""}');if(shouldSelect){opt.selected=true;matched=true}dbSel.appendChild(opt)});if(!matched&&msg.items.length>0){dbSel.selectedIndex=0;currentDbName=dbSel.value;if(isSchema)currentSchema=currentDbName;onDbChange()}else if(matched){currentDbName=dbSel.value;if(isSchema)currentSchema=currentDbName;onDbChange()}else if(currentDbName)onDbChange();else onDbChange()}
 if(msg.command==='schemasList'){const schemaSel=document.getElementById('schemaSelect');if(msg.error){schemaSel.innerHTML='<option value="">'+L.error+': '+escapeHtml(msg.error)+'</option>';return}schemaSel.innerHTML='';let matched=false;msg.schemas.forEach(function(s){const opt=document.createElement('option');opt.value=s;opt.textContent=s;if(s.toLowerCase()==='public'&&!matched){opt.selected=true;matched=true}schemaSel.appendChild(opt)});currentSchema=schemaSel.value||''}
 if(msg.command==='setSql'){if(msg.schemaName!==undefined){currentSchema=msg.schemaName}if(msg.dbName!==undefined){currentDbName=msg.dbName;const dbSel=document.getElementById('dbSelect');if(dbSel){for(let i=0;i<dbSel.options.length;i++){if(dbSel.options[i].value===msg.dbName){dbSel.selectedIndex=i;break}}}}if(msg.schemaName){const schemaSel=document.getElementById('schemaSelect');if(schemaSel){for(let i=0;i<schemaSel.options.length;i++){if(schemaSel.options[i].value===msg.schemaName){schemaSel.selectedIndex=i;break}}}// Oracle/Dameng：schema 显示在 dbSelect 中，同步选中
 const t=getConnType();if(!hasSchemaLevel(t)&&(t==='oracle'||t==='dameng'||t==='dm8')){const dbSel=document.getElementById('dbSelect');if(dbSel&&!msg.dbName){for(let i=0;i<dbSel.options.length;i++){if(dbSel.options[i].value===msg.schemaName){dbSel.selectedIndex=i;currentDbName=msg.schemaName;break}}}}}document.getElementById('sqlEditor').value=msg.sql||'';executeSql()}});
